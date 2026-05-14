@@ -1,0 +1,53 @@
+==================== 2026-05-13T14:14:09.471700Z | 019e21b0-1922-70c0-acb2-e5a356d2ff48 ====================
+14:14:09.477240 [info ]: Installing dbt project and profile setup
+14:14:09.497388 [info ]: Info Created .vscode/extensions.json with dbt extension recommendation
+14:14:09.501169 [info ]: Success Project created successfully!
+14:14:09.501302 [info ]: Info Project name: jaffle_shop
+14:14:09.501353 [info ]: Info Project directory: jaffle_shop
+14:14:09.501602 [info ]: Info Setting up your profile...
+14:14:09.514588 [info ]: Info Creating new profile...
+14:17:38.483088 [error]: dbt1001: Failed to get adapter selection: IO error: read interrupted
+14:17:38.646196 [info ]: 
+==================== Execution Summary =====================
+Finished 'init' with 1 error [3m 29s]
+==================== 2026-05-13T14:18:17.202912Z | 019e21b3-e0f1-7480-aff1-bb4df8b60bf1 ====================
+14:18:17.203061 [info ]: Installing dbt project and profile setup
+14:18:17.204337 [info ]: Warning Directory 'jaffle_shop' already exists, using 'jaffle_shop_1' instead
+14:18:17.213489 [info ]: Info Created .vscode/extensions.json with dbt extension recommendation
+14:18:17.213591 [info ]: Success Project created successfully!
+14:18:17.213623 [info ]: Info Project name: jaffle_shop_1
+14:18:17.213646 [info ]: Info Project directory: jaffle_shop_1
+14:18:17.213671 [info ]: Info Setting up your profile...
+14:18:17.213965 [info ]: Info Creating new profile...
+14:19:59.538363 [error]: dbt1001: Failed to get adapter selection: IO error: read interrupted
+14:19:59.699094 [info ]: 
+==================== Execution Summary =====================
+Finished 'init' with 1 error [1m 42s]
+[0m17:58:28.905691 [debug] [MainThread]: Got an exception trying to initialize tracking
+
+
+============================== 17:58:28.968962 | 852fe53e-b187-4390-8eac-382649072913 ==============================
+[0m17:58:28.968962 [info ] [MainThread]: Running with dbt=1.11.9
+[0m17:58:28.970187 [debug] [MainThread]: running dbt with arguments {'introspect': 'True', 'printer_width': '80', 'static_parser': 'True', 'version_check': 'True', 'target_path': 'None', 'quiet': 'False', 'invocation_command': 'dbt init ecommerce_project', 'use_colors': 'True', 'empty': 'None', 'warn_error': 'None', 'fail_fast': 'False', 'log_path': 'logs', 'indirect_selection': 'eager', 'debug': 'False', 'write_json': 'True', 'cache_selected_only': 'False', 'send_anonymous_usage_stats': 'True', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'profiles_dir': '/Users/hugobatista/.dbt', 'use_experimental_parser': 'False', 'log_format': 'default', 'log_cache_events': 'False', 'partial_parse': 'True', 'no_print': 'None'}
+[0m17:58:28.994301 [debug] [MainThread]: Starter project path: /Users/hugobatista/data-engineering-demo/venv/lib/python3.12/site-packages/dbt/include/starter_project
+[0m17:58:29.003210 [info ] [MainThread]: 
+Your new dbt project "ecommerce_project" was created!
+
+For more information on how to configure the profiles.yml file,
+please consult the dbt documentation here:
+
+  https://docs.getdbt.com/docs/configure-your-profile
+
+One more thing:
+
+Need help? Don't hesitate to reach out to us via GitHub issues or on Slack:
+
+  https://community.getdbt.com/
+
+Happy modeling!
+
+[0m17:58:29.003693 [info ] [MainThread]: Setting up your profile.
+[0m17:58:37.128544 [info ] [MainThread]: Profile ecommerce_project written to /Users/hugobatista/.dbt/profiles.yml using target's sample configuration. Once updated, you'll be able to start developing with dbt.
+[0m17:58:37.385722 [debug] [MainThread]: Resource report: {"command_name": "init", "command_success": true, "command_wall_clock_time": 8.57362, "process_in_blocks": "0", "process_kernel_time": 0.434995, "process_mem_max_rss": "118829056", "process_out_blocks": "0", "process_user_time": 1.87001}
+[0m17:58:37.386559 [debug] [MainThread]: Command `dbt init` succeeded at 17:58:37.386412 after 8.57 seconds
+[0m17:58:37.387071 [debug] [MainThread]: Flushing usage events

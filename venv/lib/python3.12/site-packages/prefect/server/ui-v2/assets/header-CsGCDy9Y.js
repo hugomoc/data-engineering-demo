@@ -1,0 +1,2 @@
+import{o as e}from"./vendor-codemirror-D11axZVd.js";import{Co as t,Gr as n,Wr as r,lo as i,qr as a}from"./index-BiQtE2N6.js";var o=e(),s=({onAddVariableClick:e})=>(0,o.jsxs)(`div`,{className:`flex items-center gap-2`,children:[(0,o.jsx)(r,{children:(0,o.jsx)(a,{children:(0,o.jsx)(n,{className:`text-xl font-semibold`,children:`Variables`})})}),e&&(0,o.jsx)(i,{size:`icon`,className:`size-7`,variant:`outline`,"aria-label":`Add variable`,onClick:()=>e(),children:(0,o.jsx)(t,{id:`Plus`,className:`size-4`})})]});export{s as t};
+//# sourceMappingURL=header-CsGCDy9Y.js.map
