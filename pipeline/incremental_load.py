@@ -4,14 +4,17 @@ import pandas as pd
 
 from logger_config import logger
 
-DB_PATH = "../data.db"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = BASE_DIR / "ecommerce_project" / "dev.duckdb"
 DAILY_FOLDER = "../data/daily_orders"
 TRACKING_FILE = "processed_files.txt"
 
 
 def main():
 
-    con = duckdb.connect(DB_PATH)
+    con = duckdb.connect(str(DB_PATH))
 
     logger.info("Connected to DuckDB")
 
@@ -89,10 +92,27 @@ def main():
             """).fetchone()[0]
 
             con.register("temp_df", df)
+            
+            print(con.execute("SELECT COUNT(*) FROM temp_df").fetchone())
 
             con.execute("""
-                INSERT INTO incremental_orders
-                SELECT *
+                INSERT INTO incremental_orders (
+                    order_id,
+                    customer_id,
+                    product_id,
+                    quantity,
+                    amount,
+                    order_date,
+                    created_at
+                )
+                SELECT
+                    order_id,
+                    customer_id,
+                    product_id,
+                    quantity,
+                    amount,
+                    order_date,
+                    CURRENT_TIMESTAMP
                 FROM temp_df t
                 WHERE NOT EXISTS (
                     SELECT 1
@@ -100,6 +120,13 @@ def main():
                     WHERE i.order_id = t.order_id
                 )
             """)
+            
+            result = con.execute("""
+            SELECT COUNT(*) 
+            FROM incremental_orders
+            """).fetchone()
+
+            print(result)
 
             rows_after = con.execute("""
             SELECT COUNT(*)

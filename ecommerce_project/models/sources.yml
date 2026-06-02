@@ -1,0 +1,11 @@
+version: 2
+
+sources:
+
+  - name: ecommerce
+    schema: main
+
+    tables:
+      - name: incremental_orders
+      - name: customers
+      - name: products

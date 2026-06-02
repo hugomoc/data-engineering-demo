@@ -2,11 +2,14 @@ import duckdb
 
 from logger_config import logger
 
-DB_PATH = "../data.db"
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = BASE_DIR / "ecommerce_project" / "dev.duckdb"
 
 def main():
 
-    con = duckdb.connect(DB_PATH)
+    con = duckdb.connect(str(DB_PATH))
     
     logger.info("Connected to DuckDB")
 
@@ -41,9 +44,16 @@ def main():
     SELECT COUNT(*)
     FROM incremental_orders
     """).fetchone()[0]
-
+    
     logger.info(f"Total rows in incremental_orders: {total_rows}")
 
+    latest_order = con.execute("""
+    SELECT MAX(order_date)
+    FROM incremental_orders
+    """).fetchone()[0]
+
+    logger.info(f"Latest order date: {latest_order}")    
+    
     logger.info("Quality checks complete")
 
 

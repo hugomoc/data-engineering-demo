@@ -1,0 +1,21 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Mac
+.DS_Store
+
+# Logs
+*.log
+
+# DuckDB
+*.duckdb
+data.db
+
+# dbt
+target/
+dbt_packages/
+
+# Pipeline artifacts
+pipeline/processed_files.txt
