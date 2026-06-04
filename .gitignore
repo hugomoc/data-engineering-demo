@@ -27,3 +27,7 @@ ecommerce_project/target/
 # Runtime state
 processed_files.txt
 pipeline/processed_files.txt
+
+#data
+data/daily_orders/
+requirements.lock.txt
