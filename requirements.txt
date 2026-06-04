@@ -1,0 +1,7 @@
+pandas
+duckdb
+prefect
+fastapi
+uvicorn
+dbt-duckdb
+python-dotenv
