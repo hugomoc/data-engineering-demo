@@ -1,25 +1,29 @@
-echo "
+# macOS
+.DS_Store
+
 # Python
 __pycache__/
 *.pyc
 
-# Virtual env
+# Virtual environments
+venv/
 venv*/
+.venv/
 .env/
-
-# OS
-.DS_Store
 
 # Logs
 *.log
+logs/
+ecommerce_project/logs/
 
-# DB files (usually)
+# Databases
 *.db
+*.duckdb
 
-# Prefect / pipeline state
+# dbt build artifacts
+target/
+ecommerce_project/target/
+
+# Runtime state
 processed_files.txt
 pipeline/processed_files.txt
-
-# Data
-data.db
-" >> .gitignore

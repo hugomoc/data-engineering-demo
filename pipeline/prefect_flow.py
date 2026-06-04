@@ -64,5 +64,5 @@ def ecommerce_pipeline():
 if __name__ == "__main__":
     ecommerce_pipeline.serve(
         name="daily-ecommerce-pipeline",
-        cron="0 6 * * *"  # every day at 6 AM
+        cron="0 11 * * *"  # every day at 6 AM
     )
