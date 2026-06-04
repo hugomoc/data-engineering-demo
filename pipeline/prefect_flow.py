@@ -1,4 +1,5 @@
 from prefect import flow, task
+from prefect.schedules import Cron
 
 import incremental_load
 import quality_checks
@@ -60,7 +61,8 @@ def ecommerce_pipeline():
 
     logger.info("Pipeline finished successfully")
 
-
 if __name__ == "__main__":
-
-    ecommerce_pipeline()
+    ecommerce_pipeline.serve(
+        name="daily-ecommerce-pipeline",
+        cron="0 6 * * *"  # every day at 6 AM
+    )

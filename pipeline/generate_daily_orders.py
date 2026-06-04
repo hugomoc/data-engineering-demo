@@ -8,14 +8,19 @@ import uuid
 # Config
 # -----------------------------
 
-DAILY_FOLDER = Path("data/daily_orders")
+BASE_DIR = Path(__file__).resolve().parent.parent if "__file__" in globals() else Path.cwd()
+
+DATA_DIR = BASE_DIR / "data"
+
+CUSTOMERS_PATH = DATA_DIR / "customers.csv"
+PRODUCTS_PATH = DATA_DIR / "products.csv"
+DAILY_FOLDER = DATA_DIR / "data" / "daily_orders"
+
 DAILY_FOLDER.mkdir(parents=True, exist_ok=True)
 
-today = datetime.now().strftime("%Y-%m-%d")
-
-filename = DAILY_FOLDER / f"{today}.csv"
-
-products = [101, 102, 103, 104, 105]
+valid_customers = pd.read_csv(CUSTOMERS_PATH)
+products_df = pd.read_csv(PRODUCTS_PATH)
+products = products_df["product_id"].tolist()
 
 NUM_ORDERS = 50
 
@@ -32,7 +37,7 @@ for _ in range(NUM_ORDERS):
 
     order = {
         "order_id": str(uuid.uuid4()),
-        "customer_id": random.randint(1, 50),
+        "customer_id": random.choice(customer_ids),
         "product_id": random.choice(products),
         "quantity": quantity,
         "unit_price": price,

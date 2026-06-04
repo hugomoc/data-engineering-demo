@@ -45,11 +45,17 @@ models:
         description: Customer foreign key
         tests:
           - not_null
+          - relationships:
+              to: ref('stg_customers')
+              field: customer_id
 
       - name: product_id
         description: Product foreign key
         tests:
           - not_null
+          - relationships:
+              to: ref('stg_products')
+              field: product_id
 
       - name: amount
         description: Order amount

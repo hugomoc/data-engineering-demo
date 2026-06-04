@@ -1,21 +1,25 @@
+echo "
 # Python
-venv/
 __pycache__/
 *.pyc
 
-# Mac
+# Virtual env
+venv*/
+.env/
+
+# OS
 .DS_Store
 
 # Logs
 *.log
 
-# DuckDB
-*.duckdb
-data.db
+# DB files (usually)
+*.db
 
-# dbt
-target/
-dbt_packages/
-
-# Pipeline artifacts
+# Prefect / pipeline state
+processed_files.txt
 pipeline/processed_files.txt
+
+# Data
+data.db
+" >> .gitignore

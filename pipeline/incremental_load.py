@@ -7,8 +7,12 @@ from logger_config import logger
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+CUSTOMERS_FILE = BASE_DIR / "data" / "customers.csv"
+PRODUCTS_FILE = BASE_DIR / "data" / "products.csv"
+DAILY_FOLDER = BASE_DIR / "data" / "daily_orders"
+
 DB_PATH = BASE_DIR / "ecommerce_project" / "dev.duckdb"
-DAILY_FOLDER = "../data/daily_orders"
 TRACKING_FILE = "processed_files.txt"
 
 
@@ -17,23 +21,27 @@ def main():
     con = duckdb.connect(str(DB_PATH))
 
     logger.info("Connected to DuckDB")
+    print("CUSTOMERS_FILE =", CUSTOMERS_FILE)
+    print("PRODUCTS_FILE =", PRODUCTS_FILE)
+    print("DAILY_FOLDER =", DAILY_FOLDER)
+    print("DB_PATH =", DB_PATH)
 
   
     #Load dimension tables
    
 
-    con.execute("""
+    con.execute(f"""
     CREATE OR REPLACE TABLE customers AS
     SELECT *
-    FROM read_csv_auto('../data/customers.csv')
+    FROM read_csv_auto('{CUSTOMERS_FILE}')
     """)
 
     logger.info("Customers loaded")
 
-    con.execute("""
+    con.execute(f"""
     CREATE OR REPLACE TABLE products AS
     SELECT *
-    FROM read_csv_auto('../data/products.csv')
+    FROM read_csv_auto('{PRODUCTS_FILE}')
     """)
 
     logger.info("Products loaded")
@@ -44,9 +52,10 @@ def main():
 
     con.execute("""
     CREATE TABLE IF NOT EXISTS incremental_orders (
-        order_id INTEGER,
+        order_id VARCHAR,
         customer_id INTEGER,
         product_id INTEGER,
+        unit_price DOUBLE,
         quantity INTEGER,
         amount DOUBLE,
         order_date DATE,
@@ -100,6 +109,7 @@ def main():
                     order_id,
                     customer_id,
                     product_id,
+                    unit_price,
                     quantity,
                     amount,
                     order_date,
@@ -109,6 +119,7 @@ def main():
                     order_id,
                     customer_id,
                     product_id,
+                    amount / NULLIF(quantity, 0) AS unit_price,
                     quantity,
                     amount,
                     order_date,
@@ -135,7 +146,17 @@ def main():
 
             inserted_rows = rows_after - rows_before
 
-            logger.info(f"Inserted rows: {inserted_rows}")
+            if inserted_rows == 0:
+                logger.info(
+                    "No rows inserted | file=%s | reason=already_loaded_or_duplicate_data",
+                    filename
+                )
+            else:
+                logger.info(
+                    "Insert summary | file=%s | inserted_rows=%s",
+                    filename,
+                    inserted_rows
+                )
 
             # Mark file as processed
             with open(TRACKING_FILE, "a") as f:
