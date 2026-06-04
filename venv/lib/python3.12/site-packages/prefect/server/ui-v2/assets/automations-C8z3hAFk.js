@@ -1,2 +1,0 @@
-import{o as e}from"./vendor-codemirror-D11axZVd.js";import{t}from"./error-utils-B7rdSqWb.js";import{t as n}from"./route-error-state-H2NSUhVC.js";import{t as r}from"./automations-header-q2yLjPzU.js";var i=e(),a=function({error:e,reset:a}){let o=t(e,`Failed to load automations`);if(o.type!==`server-error`&&o.type!==`client-error`)throw e;return(0,i.jsxs)(`div`,{className:`flex flex-col gap-4`,children:[(0,i.jsx)(r,{}),(0,i.jsx)(n,{error:o,onRetry:a})]})};export{a as errorComponent};
-//# sourceMappingURL=automations-C8z3hAFk.js.map
