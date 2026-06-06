@@ -13,163 +13,167 @@ PRODUCTS_FILE = BASE_DIR / "data" / "products.csv"
 DAILY_FOLDER = BASE_DIR / "data" / "daily_orders"
 
 DB_PATH = BASE_DIR / "ecommerce_project" / "dev.duckdb"
-TRACKING_FILE = "processed_files.txt"
+TRACKING_FILE = BASE_DIR / "data" / "processed_files.txt"
 
 
 def main():
 
     con = duckdb.connect(str(DB_PATH))
-
-    logger.info("Connected to DuckDB")
-    print("CUSTOMERS_FILE =", CUSTOMERS_FILE)
-    print("PRODUCTS_FILE =", PRODUCTS_FILE)
-    print("DAILY_FOLDER =", DAILY_FOLDER)
-    print("DB_PATH =", DB_PATH)
-
-  
-    #Load dimension tables
-   
-
-    con.execute(f"""
-    CREATE OR REPLACE TABLE customers AS
-    SELECT *
-    FROM read_csv_auto('{CUSTOMERS_FILE}')
-    """)
-
-    logger.info("Customers loaded")
-
-    con.execute(f"""
-    CREATE OR REPLACE TABLE products AS
-    SELECT *
-    FROM read_csv_auto('{PRODUCTS_FILE}')
-    """)
-
-    logger.info("Products loaded")
-
     
-    #Create incremental fact table
-   
+    try:    
 
-    con.execute("""
-    CREATE TABLE IF NOT EXISTS incremental_orders (
-        order_id VARCHAR,
-        customer_id INTEGER,
-        product_id INTEGER,
-        unit_price DOUBLE,
-        quantity INTEGER,
-        amount DOUBLE,
-        order_date DATE,
-        created_at TIMESTAMP
-    )
-    """)
+        logger.info("CUSTOMERS_FILE: %s", CUSTOMERS_FILE)
+        logger.info("PRODUCTS_FILE: %s", PRODUCTS_FILE)
+        logger.info("DAILY_FOLDER: %s", DAILY_FOLDER)
+        logger.info("DB_PATH: %s", DB_PATH)
+      
+        #Load dimension tables       
 
-    logger.info("incremental_orders table ready")
+        con.execute(f"""
+        CREATE OR REPLACE TABLE customers AS
+        SELECT *
+        FROM read_csv_auto('{CUSTOMERS_FILE}')
+        """)
 
-    
-    #Read processed files
-    
+        logger.info("Customers loaded")
 
-    if os.path.exists(TRACKING_FILE):
+        con.execute(f"""
+        CREATE OR REPLACE TABLE products AS
+        SELECT *
+        FROM read_csv_auto('{PRODUCTS_FILE}')
+        """)
 
-        with open(TRACKING_FILE, "r") as f:
-            processed_files = set(f.read().splitlines())
+        logger.info("Products loaded")
 
-    else:
-        processed_files = set()
+        
+        #Create incremental fact table
+       
 
-    logger.info(f"Previously processed files: {len(processed_files)}")
+        con.execute("""
+        CREATE TABLE IF NOT EXISTS incremental_orders (
+            order_id VARCHAR,
+            customer_id INTEGER,
+            product_id INTEGER,
+            unit_price DOUBLE,
+            quantity INTEGER,
+            amount DOUBLE,
+            order_date DATE,
+            created_at TIMESTAMP
+        )
+        """)
 
-    
-    #Process new files
-    
+        logger.info("incremental_orders table ready")
 
-    new_files_processed = 0
+        
+        #Read processed files
+        
 
-    for filename in os.listdir(DAILY_FOLDER):
+        if TRACKING_FILE.exists():
+            with open(TRACKING_FILE, "r") as f:
+                processed_files = set(f.read().splitlines())
 
-        if filename.endswith(".csv") and filename not in processed_files:
+        else:
+            processed_files = set()
 
-            file_path = os.path.join(DAILY_FOLDER, filename)
+        logger.info(f"Previously processed files: {len(processed_files)}")
 
-            logger.info(f"Processing file: {filename}")
+        
+        #Process new files
+        
 
-            df = pd.read_csv(file_path)
+        new_files_processed = 0
 
-            rows_before = con.execute("""
-            SELECT COUNT(*)
-            FROM incremental_orders
-            """).fetchone()[0]
+        for filename in os.listdir(DAILY_FOLDER):
 
-            con.register("temp_df", df)
-            
-            print(con.execute("SELECT COUNT(*) FROM temp_df").fetchone())
+            if filename.endswith(".csv") and filename not in processed_files:
 
-            con.execute("""
-                INSERT INTO incremental_orders (
-                    order_id,
-                    customer_id,
-                    product_id,
-                    unit_price,
-                    quantity,
-                    amount,
-                    order_date,
-                    created_at
-                )
-                SELECT
-                    order_id,
-                    customer_id,
-                    product_id,
-                    amount / NULLIF(quantity, 0) AS unit_price,
-                    quantity,
-                    amount,
-                    order_date,
-                    CURRENT_TIMESTAMP
-                FROM temp_df t
-                WHERE NOT EXISTS (
-                    SELECT 1
-                    FROM incremental_orders i
-                    WHERE i.order_id = t.order_id
-                )
-            """)
-            
-            result = con.execute("""
-            SELECT COUNT(*) 
-            FROM incremental_orders
-            """).fetchone()
+                file_path = os.path.join(DAILY_FOLDER, filename)
 
-            print(result)
+                logger.info(f"Processing file: {filename}")
 
-            rows_after = con.execute("""
-            SELECT COUNT(*)
-            FROM incremental_orders
-            """).fetchone()[0]
+                df = pd.read_csv(file_path)
+                df["order_id"] = df["order_id"].astype(str)
 
-            inserted_rows = rows_after - rows_before
+                con.register("temp_df", df)
 
-            if inserted_rows == 0:
-                logger.info(
-                    "No rows inserted | file=%s | reason=already_loaded_or_duplicate_data",
-                    filename
-                )
-            else:
-                logger.info(
-                    "Insert summary | file=%s | inserted_rows=%s",
-                    filename,
-                    inserted_rows
-                )
+                rows_before = con.execute("""
+                SELECT COUNT(*)
+                FROM incremental_orders
+                """).fetchone()[0]            
+                
+                logger.info(con.execute("SELECT COUNT(*) FROM temp_df").fetchone())
 
-            # Mark file as processed
-            with open(TRACKING_FILE, "a") as f:
-                f.write(filename + "\n")
+                con.execute("""
+                    INSERT INTO incremental_orders (
+                        order_id,
+                        customer_id,
+                        product_id,
+                        unit_price,
+                        quantity,
+                        amount,
+                        order_date,
+                        created_at
+                    )
+                    SELECT
+                        CAST(order_id AS VARCHAR),
+                        customer_id,
+                        product_id,
+                        amount / NULLIF(quantity, 0) AS unit_price,
+                        quantity,
+                        amount,
+                        order_date,
+                        CURRENT_TIMESTAMP
+                    FROM temp_df t
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM incremental_orders i
+                        WHERE i.order_id = CAST(t.order_id AS VARCHAR)
+                    )
+                """)
+                
+                result = con.execute("""
+                SELECT COUNT(*) 
+                FROM incremental_orders
+                """).fetchone()
 
-            logger.info(f"Finished processing: {filename}")
+                logger.info(result)
 
-            new_files_processed += 1
+                rows_after = con.execute("""
+                SELECT COUNT(*)
+                FROM incremental_orders
+                """).fetchone()[0]
 
-    if new_files_processed == 0:
-        logger.info("No new files found")
+                inserted_rows = rows_after - rows_before
 
-    logger.info("Incremental load complete")
+                if inserted_rows == 0:
+                    logger.info(
+                        "No rows inserted | file=%s | reason=already_loaded_or_duplicate_data",
+                        filename
+                    )
+                else:
+                    logger.info(
+                        "Insert summary | file=%s | inserted_rows=%s",
+                        filename,
+                        inserted_rows
+                    )
+
+                # Mark file as processed
+                with open(TRACKING_FILE, "a") as f:
+                    f.write(filename + "\n")
+
+                logger.info(f"Finished processing: {filename}")
+
+                new_files_processed += 1
+
+        if new_files_processed == 0:
+            logger.info("No new files found")
+
+        logger.info("Incremental load complete")
+
+
+    finally:
+        con.close()
+        logger.info("DuckDB connection closed")
 
 
 if __name__ == "__main__":
