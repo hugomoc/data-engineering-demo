@@ -1,0 +1,46 @@
+version: 2
+
+models:
+
+  - name: fct_sales
+    description: >
+      Incremental fact table at order grain (one row per order_id).
+      This is the core fact table powering all downstream analytics models.
+
+    columns:
+      - name: order_id
+        description: Primary key for each order
+        tests:
+          - unique
+          - not_null
+
+      - name: order_date
+        description: Date the order was placed
+
+      - name: customer_id
+        description: Foreign key to customers
+
+      - name: product_id
+        description: Foreign key to products
+
+      - name: amount
+        description: Total order amount
+        tests:
+          - not_null
+
+      - name: quantity
+        description: Number of items in the order
+        tests:
+          - not_null
+
+      - name: customer_name
+        description: Customer name (denormalized for analytics convenience)
+
+      - name: segment
+        description: Customer segment (e.g. retail, enterprise)
+
+      - name: product_name
+        description: Product name (denormalized for analytics convenience)
+
+      - name: category
+        description: Product category

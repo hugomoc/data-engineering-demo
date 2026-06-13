@@ -1,9 +1,9 @@
 version: 2
 
 models:
-  - name: stg_customers
-    description: Customer staging model
 
+  - name: stg_customers
+    description: Cleaned customer staging model
     columns:
       - name: customer_id
         description: Unique customer identifier
@@ -16,9 +16,9 @@ models:
         tests:
           - not_null
 
-  - name: stg_products
-    description: Product staging model
 
+  - name: stg_products
+    description: Cleaned product staging model
     columns:
       - name: product_id
         description: Unique product identifier
@@ -31,9 +31,9 @@ models:
         tests:
           - not_null
 
-  - name: stg_orders
-    description: Orders staging model
 
+  - name: stg_orders
+    description: Cleaned orders staging model
     columns:
       - name: order_id
         description: Unique order identifier
@@ -46,16 +46,18 @@ models:
         tests:
           - not_null
           - relationships:
-              to: ref('stg_customers')
-              field: customer_id
+              arguments:
+                to: ref('stg_customers')
+                field: stg_customers.customer_id
 
       - name: product_id
         description: Product foreign key
         tests:
           - not_null
           - relationships:
-              to: ref('stg_products')
-              field: product_id
+              arguments:
+                to: ref('stg_products')
+                field: product_id
 
       - name: amount
         description: Order amount

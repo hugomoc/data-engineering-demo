@@ -1,9 +1,9 @@
 version: 2
 
 sources:
-
   - name: ecommerce
     schema: main
+    description: Raw ecommerce ingestion layer (DuckDB)
 
     tables:
       - name: incremental_orders

@@ -75,7 +75,9 @@ def main():
         else:
             processed_files = set()
 
-        logger.info(f"Previously processed files: {len(processed_files)}")
+        logger.info("Previously processed files: %s",
+        len(processed_files)
+)
 
         
         #Process new files
@@ -96,12 +98,15 @@ def main():
 
                 con.register("temp_df", df)
 
-                rows_before = con.execute("""
-                SELECT COUNT(*)
-                FROM incremental_orders
-                """).fetchone()[0]            
+                rows_before = con.execute("SELECT COUNT(*) FROM incremental_orders"
+                ).fetchone()[0]            
                 
-                logger.info(con.execute("SELECT COUNT(*) FROM temp_df").fetchone())
+                temp_rows = con.execute("SELECT COUNT(*) FROM temp_df"
+                ).fetchone()[0]
+                
+                total_rows = con.execute("SELECT COUNT(*) FROM incremental_orders"
+                ).fetchone()[0]
+                
 
                 con.execute("""
                     INSERT INTO incremental_orders (
@@ -131,17 +136,17 @@ def main():
                     )
                 """)
                 
-                result = con.execute("""
-                SELECT COUNT(*) 
-                FROM incremental_orders
-                """).fetchone()
+                con.unregister("temp_df")
+                
+                result = con.execute("SELECT COUNT(*) FROM incremental_orders"
+                ).fetchone()
 
-                logger.info(result)
+                logger.info("Rows in temp_df: %s", temp_rows)
+                
+                logger.info("Total rows in incremental_orders: %s", total_rows)
 
-                rows_after = con.execute("""
-                SELECT COUNT(*)
-                FROM incremental_orders
-                """).fetchone()[0]
+                rows_after = con.execute("SELECT COUNT(*) FROM incremental_orders"
+                ).fetchone()[0]
 
                 inserted_rows = rows_after - rows_before
 
