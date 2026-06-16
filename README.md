@@ -1,26 +1,28 @@
-# Data Engineering Demo: Modern ELT + AI Analytics Platform (dbt, Prefect, DuckDB, FastAPI)
+# Data Engineering Demo: Modern ELT + AI Analytics Platform
+(dbt • Prefect • DuckDB • FastAPI • LLMs)
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
-![Prefect](https://img.shields.io/badge/Orchestration-Prefect-purple)
-![dbt](https://img.shields.io/badge/Transformations-dbt-orange)
-![DuckDB](https://img.shields.io/badge/Warehouse-DuckDB-yellow)
-![FastAPI](https://img.shields.io/badge/API-FastAPI-green)
-![OpenAI](https://img.shields.io/badge/AI-GPT--4o--mini-black)
+![Orchestration](https://img.shields.io/badge/Orchestration-Prefect-purple)
+![Transformations](https://img.shields.io/badge/Transformations-dbt-orange)
+![Warehouse](https://img.shields.io/badge/Warehouse-DuckDB-yellow)
+![API](https://img.shields.io/badge/API-FastAPI-green)
+![AI](https://img.shields.io/badge/LLM-GPT--4o--mini-black)
 
 ---
 
 ## Overview
 
-This project is an end-to-end **modern data engineering and AI analytics platform** that simulates an e-commerce analytics system.
+This project is a production-style **end-to-end analytics engineering system** that simulates an e-commerce data platform.
 
-It combines:
-- ELT data pipelines (Python + Prefect)
-- Analytics engineering models (dbt)
-- Local analytical warehouse (DuckDB)
-- API layer (FastAPI)
-- LLM-powered analytics assistant (OpenAI GPT-4o-mini)
+It demonstrates a modern ELT architecture combining:
 
-The system allows both **SQL-based analytics** and **natural language querying of business metrics**.
+- Orchestrated ingestion pipelines (Prefect)
+- Modular transformation layer (dbt)
+- Lightweight analytical warehouse (DuckDB)
+- Analytics serving API (FastAPI)
+- LLM-powered natural language analytics interface
+
+The system supports both **SQL-based analytics workflows** and **natural language querying of business metrics**.
 
 ---
 
@@ -61,82 +63,104 @@ The system allows both **SQL-based analytics** and **natural language querying o
 
 ---
 
-## Key Features
+## System Components
 
-### 1. Data Ingestion (Python)
-- Reads raw CSV e-commerce data
-- Performs incremental loading
-- Prevents duplicate processing using file tracking
-- Produces analytics-ready datasets
-
----
-
-### 2. Workflow Orchestration (Prefect)
-- Automates full pipeline execution
-- Manages task dependencies (load → validate → transform)
-- Provides retries, logging, and scheduling via cron deployments
+### 1. Data Ingestion Layer (Python + Prefect)
+- Incremental CSV ingestion with file tracking
+- Prevents duplicate processing
+- Designed for batch-oriented ELT workloads
+- Integrated with Prefect for orchestration, retries, and scheduling
 
 ---
 
-### 3. Data Warehouse (DuckDB)
-- Lightweight analytical database
-- Supports fast SQL execution locally
-- Acts as central storage for transformations
+### 2. Orchestration Layer (Prefect)
+- Manages end-to-end pipeline execution:
+  - ingest → validate → transform
+- Supports scheduled runs via cron deployments
+- Provides observability through Prefect UI
+- Handles task dependencies and failure recovery
 
 ---
 
-### 4. Analytics Engineering (dbt)
-- Modular SQL transformation layer
-- Staging and analytics models
-- Data testing for quality validation
-- Snapshotting and reusable metrics logic
+### 3. Analytical Warehouse (DuckDB)
+- Embedded OLAP engine for local analytics
+- Serves as the central storage layer
+- Optimized for fast columnar SQL execution
+- Eliminates need for external warehouse in local environments
 
 ---
 
-### 5. API Layer (FastAPI)
-Exposes analytical results via REST endpoints:
+### 4. Transformation Layer (dbt)
+Implements a layered analytics architecture:
+
+- **Staging models** → raw normalization
+- **Intermediate models** → business logic enrichment
+- **Mart models** → analytics-ready datasets
+
+Key outputs:
+- `fct_sales`
+- `mart_customer_ltv`
+- `top_products`
+- `monthly_revenue`
+- `revenue_by_segment`
+
+Includes:
+- Data tests (uniqueness, not-null, referential integrity)
+- Modular SQL architecture
+- Reusable transformation logic
+
+---
+
+### 5. Serving Layer (FastAPI)
+Exposes analytics through REST endpoints:
 
 - `/top-products`
-- `/revenue-by-segment`
 - `/monthly-revenue`
-- `/ask` (AI-powered analytics interface)
+- `/revenue-by-segment`
+- `/ask` (LLM-powered analytics interface)
+
+This layer bridges:
+- SQL analytics
+- Business consumption
+- Natural language interaction
 
 ---
 
-## AI-Powered Analytics Layer
+## AI Analytics Layer (LLM-Powered)
 
-This project includes an LLM-powered analytics interface that enables natural language querying of business metrics.
+The system includes an AI interface powered by GPT-4o-mini for natural language analytics.
 
 ### Capabilities
 
-- Natural language → metric routing using GPT-4o-mini
-- Context-aware analytics conversations (session memory)
-- Automated KPI explanations from query results
-- Month-over-month comparison reasoning
-- Business insight generation from SQL outputs
+- Natural language → metric routing
+- Dynamic SQL execution via dbt/DuckDB layer
+- KPI explanation generation
+- Business insight summarization
+- Context-aware follow-up questions (session-based)
 
-### Example
+### Example Flow
 
-**User:**
+**User question:**
+> What are the top products this month?
 
-> What are the top products?
-
-**System:**
-- Routes question to correct dbt/SQL model
-- Executes DuckDB query
-- Returns structured results + LLM-generated insight
+**System execution:**
+1. LLM classifies intent (product analytics)
+2. Routes to dbt model / SQL query
+3. Executes against DuckDB
+4. Returns structured results
+5. LLM generates business interpretation
 
 ---
 
 ## Tech Stack
 
 - Python 3.12
-- Prefect (orchestration)
-- dbt-core (transformations)
-- DuckDB (warehouse)
-- FastAPI (API layer)
-- OpenAI GPT-4o-mini (AI layer)
-- SQL (analytics)
+- Prefect (workflow orchestration)
+- dbt-core (analytics engineering)
+- DuckDB (analytical warehouse)
+- FastAPI (serving layer)
+- OpenAI GPT-4o-mini (LLM layer)
+- SQL (core transformation logic)
 
 ---
 
@@ -153,6 +177,14 @@ uvicorn api.main:app --reload
 ## Design principles
 
 This project follows modern data engineering principles including separation of ingestion, transformation, and serving layers, modular SQL modeling with dbt, lightweight analytics storage using DuckDB, and AI-assisted analytics for business interpretation. It is designed to be extensible, reproducible, and representative of production-style ELT architectures.
+
+## Business Use Cases
+
+- Product performance analysis
+- Revenue tracking (monthly + segment-based)
+- Customer lifetime value (CLV)
+- Sales funnel analytics
+- Self-service analytics via natural language
 
 ## Future improvements
 
