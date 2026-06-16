@@ -19,9 +19,15 @@ ecommerce_project/logs/
 # Databases
 *.db
 *.duckdb
+*.wal
+
+# Prefect
+.prefect/
 
 # dbt build artifacts
 target/
+dbt_packages/
+logs/
 ecommerce_project/target/
 
 # Runtime state
@@ -31,3 +37,4 @@ pipeline/processed_files.txt
 #data
 data/daily_orders/
 requirements.lock.txt
+sql copy/

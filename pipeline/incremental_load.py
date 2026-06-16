@@ -18,10 +18,12 @@ TRACKING_FILE = BASE_DIR / "data" / "processed_files.txt"
 
 def main():
 
-    con = duckdb.connect(str(DB_PATH))
+    con = None    
     
-    try:    
-
+    try: 
+        con = duckdb.connect(str(DB_PATH))
+                
+        logger.info("Connected to DuckDB")
         logger.info("CUSTOMERS_FILE: %s", CUSTOMERS_FILE)
         logger.info("PRODUCTS_FILE: %s", PRODUCTS_FILE)
         logger.info("DAILY_FOLDER: %s", DAILY_FOLDER)
@@ -85,7 +87,7 @@ def main():
 
         new_files_processed = 0
 
-        for filename in os.listdir(DAILY_FOLDER):
+        for filename in sorted(os.listdir(DAILY_FOLDER)):
 
             if filename.endswith(".csv") and filename not in processed_files:
 
@@ -177,8 +179,9 @@ def main():
 
 
     finally:
-        con.close()
-        logger.info("DuckDB connection closed")
+        if con:
+            con.close()
+            logger.info("DuckDB connection closed")
 
 
 if __name__ == "__main__":

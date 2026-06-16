@@ -9,52 +9,60 @@ DB_PATH = BASE_DIR / "ecommerce_project" / "dev.duckdb"
 
 def main():
 
-    con = duckdb.connect(str(DB_PATH))
+    con = None
     
-    logger.info("Connected to DuckDB")
+    try:   
 
-    # Null check
-    nulls = con.execute("""
-    SELECT COUNT(*)
-    FROM incremental_orders
-    WHERE order_id IS NULL
-    """).fetchone()[0]
+        con = duckdb.connect(str(DB_PATH))
+        
+        logger.info("Connected to DuckDB")
 
-    logger.info(f"Null order IDs: {nulls}")
+        # Null check
+        nulls = con.execute("""
+        SELECT COUNT(*)
+        FROM incremental_orders
+        WHERE order_id IS NULL
+        """).fetchone()[0]
 
-    # Duplicate check
-    dupes = con.execute("""
-    SELECT order_id, COUNT(*)
-    FROM incremental_orders
-    GROUP BY order_id
-    HAVING COUNT(*) > 1
-    """).fetchdf()
+        logger.info(f"Null order IDs: {nulls}")
 
-    if dupes.empty:
+        # Duplicate check
+        dupes = con.execute("""
+        SELECT order_id, COUNT(*)
+        FROM incremental_orders
+        GROUP BY order_id
+        HAVING COUNT(*) > 1
+        """).fetchdf()
 
-        logger.info("No duplicate orders found")
+        if dupes.empty:
 
-    else:
+            logger.info("No duplicate orders found")
 
-        logger.warning("Duplicate orders detected")
-        print(dupes)
+        else:
+
+            logger.warning("Duplicate orders detected")
+            print(dupes)
+        
+        # Total row count
+        total_rows = con.execute("""
+        SELECT COUNT(*)
+        FROM incremental_orders
+        """).fetchone()[0]
+        
+        logger.info(f"Total rows in incremental_orders: {total_rows}")
+
+        latest_order = con.execute("""
+        SELECT MAX(order_date)
+        FROM incremental_orders
+        """).fetchone()[0]
+
+        logger.info(f"Latest order date: {latest_order}")    
+        
+        logger.info("Quality checks complete")
     
-    # Total row count
-    total_rows = con.execute("""
-    SELECT COUNT(*)
-    FROM incremental_orders
-    """).fetchone()[0]
-    
-    logger.info(f"Total rows in incremental_orders: {total_rows}")
-
-    latest_order = con.execute("""
-    SELECT MAX(order_date)
-    FROM incremental_orders
-    """).fetchone()[0]
-
-    logger.info(f"Latest order date: {latest_order}")    
-    
-    logger.info("Quality checks complete")
+    finally:
+        if con:
+            con.close()
 
 
 if __name__ == "__main__":

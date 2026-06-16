@@ -1,51 +1,65 @@
-from prefect import flow, task
-from prefect.schedules import Cron
-
 import incremental_load
 import quality_checks
-import run_queries
+import subprocess
+import os
+import time
 
+from pathlib import Path
+from prefect import flow, task
 from logger_config import logger
 
 
-@task(
-    name="incremental-load",
-    retries=2,
-    retry_delay_seconds=5
-)
+@task(name="incremental-load", retries=0, retry_delay_seconds=5)
 def load():
+    logger.info("Starting incremental load")
 
-    logger.info("Starting incremental load task")
+    incremental_load.main()  # MUST fully close DB inside
 
-    incremental_load.main()
+    logger.info("Incremental load completed")
 
-    logger.info("Incremental load task completed")
+    # safety buffer for file lock release
+    time.sleep(2)
 
 
-@task(
-    name="quality-checks",
-    retries=1
-)
+@task(name="quality-checks", retries=1)
 def validate():
+    logger.info("Starting quality checks")
 
-    logger.info("Starting quality checks task")
+    quality_checks.main()  # MUST be read-only + closed properly
 
-    quality_checks.main()
+    logger.info("Quality checks completed")
 
-    logger.info("Quality checks task completed")
+    time.sleep(1)
 
 
-@task(
-    name="run-transformations",
-    retries=1
-)
+@task(name="dbt-run", retries=1)
 def transform():
+    logger.info("Starting dbt run")
 
-    logger.info("Starting transformation task")
+    project_dir = (
+        Path(__file__).resolve().parent.parent / "ecommerce_project"
+    )
 
-    run_queries.main()
+    env = os.environ.copy()
+    env["DBT_THREADS"] = "1"
 
-    logger.info("Transformation task completed")
+    # run dbt run
+    subprocess.run(
+        ["dbt", "run"],
+        cwd=project_dir,
+        check=True,
+        env=env
+    )
+
+    # run dbt test
+    subprocess.run(
+        ["dbt", "test"],
+        cwd=project_dir,
+        check=True,
+        env=env
+    )
+
+    logger.info("dbt completed")
 
 
 @flow(name="ecommerce-pipeline")
@@ -53,18 +67,16 @@ def ecommerce_pipeline():
 
     logger.info("Pipeline started")
 
-    load()
-
-    validate()
-
-    transform()
+    load()       # STEP 1
+    validate()   # STEP 2
+    transform()  # STEP 3 (dbt only now touches DB)
 
     logger.info("Pipeline finished successfully")
 
 if __name__ == "__main__":
     ecommerce_pipeline.serve(
         name="daily-ecommerce-pipeline",
-        cron="0 18 * * *",  # every day at 11 AM
+        cron="0 18 * * *",  # every day at 6PM UTC/11AM PT 
        
         
     )
