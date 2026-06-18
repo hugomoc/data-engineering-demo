@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from openai import OpenAI
 from collections import defaultdict
 from dotenv import load_dotenv
+from pathlib import Path
 
 import duckdb
 import os
@@ -10,7 +11,10 @@ import json
 load_dotenv()
 app = FastAPI()
 
-DB_PATH = "data.db"
+
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = BASE_DIR / "ecommerce_project" / "dev.duckdb"
 
 chat_history = defaultdict(list)
 last_metric = defaultdict(lambda: None)
@@ -19,31 +23,40 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 METRICS = {
     "top_products": {
-        "file": "sql/top_products.sql",
-        "comparison_file": "sql/top_products_month.sql",
+        "table": "top_products",
+        "comparison_table": "top_products_month",
         "description": "Best selling products by revenue"
     },
     "revenue_by_segment": {
-        "file": "sql/revenue_by_segment.sql",
-        "comparison_file": "sql/revenue_by_segment_month.sql",
+        "table": "revenue_by_segment",
+        "comparison_table": "revenue_by_segment_month",
         "description": "Revenue grouped by customer segment"
     },
     "monthly_revenue": {
-        "file": "sql/monthly_revenue.sql",
-        "comparison_file": "sql/monthly_revenue_month.sql",
+        "table": "monthly_revenue",
+        "comparison_table": "monthly_revenue_month",
         "description": "Revenue trends over time"
-    }
+    }    
 }
 
 
-def run_query(sql_path: str):
+def run_query(table_name: str):
 
-    con = duckdb.connect(DB_PATH)
+    if table_name not in {
+        "top_products",
+        "top_products_month",
+        "revenue_by_segment",
+        "revenue_by_segment_month",
+        "monthly_revenue"
+    }:
+        raise ValueError(f"Invalid table: {table_name}")
 
-    with open(sql_path, "r") as file:
-        query = file.read()
+    con = duckdb.connect(str(DB_PATH))
 
-    result = con.execute(query).fetchdf()
+    result = con.execute(f"""
+        SELECT *
+        FROM {table_name}
+    """).fetchdf()
 
     con.close()
 
@@ -220,9 +233,8 @@ def ask(question: str, session_id: str = "default"):
                 "error": "Ask about a metric first. Example: top products"
             }
 
-        comparison_file = METRICS[metric]["comparison_file"]
-
-        comparison_results = run_query(comparison_file)
+        comparison_table = METRICS[metric]["comparison_table"]
+        comparison_results = run_query(comparison_table)
 
         comparison_insight = generate_comparison_insight(
             metric,
@@ -236,7 +248,16 @@ def ask(question: str, session_id: str = "default"):
             "comparison_insight": comparison_insight
         }
 
-    metric = llm_route_question(question)
+    question_lower = question.lower()
+
+    if "segment" in question_lower:
+        metric = "revenue_by_segment"
+    elif "product" in question_lower:
+        metric = "top_products"
+    elif "revenue" in question_lower:
+        metric = "monthly_revenue"
+    else:
+        metric = None
 
     if not metric:
         return {
@@ -246,16 +267,12 @@ def ask(question: str, session_id: str = "default"):
 
     last_metric[session_id] = metric
 
-    sql_file = METRICS[metric]["file"]
-
-    results = run_query(sql_file)
+    table_name = METRICS[metric]["table"]
+    results = run_query(table_name)
 
     context = chat_history[session_id][-6:]
 
-    insight = generate_chat_insight(
-        context,
-        results
-    )
+    insight = "Demo insight generated without LLM."
 
     chat_history[session_id].append(
         {
@@ -265,28 +282,28 @@ def ask(question: str, session_id: str = "default"):
     )
 
     return {
-        "question": question,
-        "metric": metric,
-        "sql_used": sql_file,
-        "results": results,
-        "insight": insight
+    "question": question,
+    "metric": metric,
+    "table_used": table_name,
+    "results": results,
+    "insight": insight
     }
 
 
 @app.get("/top-products")
 def top_products():
 
-    return run_query("sql/top_products.sql")
+    return run_query("top_products")
 
 
 @app.get("/revenue-by-segment")
 def revenue_by_segment():
 
-    return run_query("sql/revenue_by_segment.sql")
+    return run_query("revenue_by_segment")
 
 
 @app.get("/monthly-revenue")
 def monthly_revenue():
 
-    return run_query("sql/monthly_revenue.sql")
+    return run_query("monthly_revenue")
 
