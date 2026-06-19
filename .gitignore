@@ -38,3 +38,4 @@ pipeline/processed_files.txt
 data/daily_orders/
 requirements.lock.txt
 sql copy/
+.env

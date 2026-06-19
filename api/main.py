@@ -1,25 +1,30 @@
 from fastapi import FastAPI
-from openai import OpenAI
 from collections import defaultdict
 from dotenv import load_dotenv
 from pathlib import Path
 
+import google.generativeai as genai
 import duckdb
 import os
 import json
 
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+load_dotenv(BASE_DIR / ".env")
+
+print("KEY LOADED:", os.getenv("GEMINI_API_KEY"))
+
 app = FastAPI()
 
-
-
-BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "ecommerce_project" / "dev.duckdb"
+
+
 
 chat_history = defaultdict(list)
 last_metric = defaultdict(lambda: None)
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+model = genai.GenerativeModel("gemini-2.5-flash-lite")
 
 METRICS = {
     "top_products": {
@@ -88,42 +93,27 @@ def llm_route_question(question: str):
     }
 
     prompt = f"""
-You are an analytics routing system.
+    You are an analytics routing system.
 
-Available metrics:
-{json.dumps(metric_list, indent=2)}
+    Available metrics:
+    {json.dumps(metric_list, indent=2)}
 
-Rules:
-- Return ONLY the metric key
-- If nothing matches return "none"
+    Rules:
+    - Return ONLY the metric key
+    - If nothing matches return "none"
 
-Question:
-{question}
-"""
+    Question:
+    {question}
+    """
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are an analytics routing assistant."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        temperature=0
+    response = model.generate_content(
+        prompt,
+        generation_config={
+            "temperature": 0
+        }
     )
 
-    metric = (
-        response
-        .choices[0]
-        .message
-        .content
-        .strip()
-        .lower()
-    )
+    metric = response.text.strip().lower()
 
     print(f"LLM selected metric: {metric}")
 
@@ -136,74 +126,58 @@ Question:
 def generate_chat_insight(chat_context, results):
 
     prompt = f"""
-You are a senior analytics assistant.
+    You are a senior analytics assistant.
 
-Conversation:
-{json.dumps(chat_context, indent=2)}
+    Conversation:
+    {json.dumps(chat_context, indent=2)}
 
-Latest Results:
-{json.dumps(results, indent=2)}
+    Latest Results:
+    {json.dumps(results, indent=2)}
 
-Rules:
-- Be concise
-- Explain business meaning
-- Do not hallucinate values
-- Keep response between 3 and 5 sentences
-"""
+    Rules:
+    - Be concise
+    - Explain business meaning
+    - Do not hallucinate values
+    - Keep response between 3 and 5 sentences
+    """
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a helpful analytics assistant."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        temperature=0.3
+    response = model.generate_content(
+        prompt,
+        generation_config={
+            "temperature": 0.3
+        }
     )
 
-    return response.choices[0].message.content.strip()
+    return response.text.strip()
 
 
 def generate_comparison_insight(metric_name, comparison_results):
 
     prompt = f"""
-You are a senior business analyst.
+    You are a senior business analyst.
 
-Metric:
-{metric_name}
+    Metric:
+    {metric_name}
 
-Comparison Results:
-{json.dumps(comparison_results, indent=2)}
+    Comparison Results:
+    {json.dumps(comparison_results, indent=2)}
 
-Explain:
-- Month-over-month changes
-- Key drivers
-- Notable increases or decreases
+    Explain:
+    - Month-over-month changes
+    - Key drivers
+    - Notable increases or decreases
 
-Keep the explanation concise.
-"""
+    Keep the explanation concise.
+    """
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are an analytics comparison expert."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        temperature=0.3
+    response = model.generate_content(
+        prompt,
+        generation_config={
+            "temperature": 0.3
+        }
     )
 
-    return response.choices[0].message.content.strip()
+    return response.text.strip()
 
 
 @app.get("/")
@@ -236,10 +210,14 @@ def ask(question: str, session_id: str = "default"):
         comparison_table = METRICS[metric]["comparison_table"]
         comparison_results = run_query(comparison_table)
 
-        comparison_insight = generate_comparison_insight(
-            metric,
-            comparison_results
-        )
+        try:
+            comparison_insight = generate_comparison_insight(
+                metric,
+                comparison_results
+    )
+        except Exception as e:
+            print(f"Comparison insight error: {e}")
+            comparison_insight = "Unable to generate comparison insight."
 
         return {
             "question": question,
@@ -248,16 +226,21 @@ def ask(question: str, session_id: str = "default"):
             "comparison_insight": comparison_insight
         }
 
-    question_lower = question.lower()
+    try:
+        metric = llm_route_question(question)
+    except Exception as e:
+        print(f"LLM routing error: {e}")
 
-    if "segment" in question_lower:
-        metric = "revenue_by_segment"
-    elif "product" in question_lower:
-        metric = "top_products"
-    elif "revenue" in question_lower:
-        metric = "monthly_revenue"
-    else:
-        metric = None
+        question_lower = question.lower()
+
+        if "segment" in question_lower:
+            metric = "revenue_by_segment"
+        elif "product" in question_lower:
+            metric = "top_products"
+        elif "revenue" in question_lower:
+            metric = "monthly_revenue"
+        else:
+            metric = None
 
     if not metric:
         return {
@@ -272,7 +255,14 @@ def ask(question: str, session_id: str = "default"):
 
     context = chat_history[session_id][-6:]
 
-    insight = "Demo insight generated without LLM."
+    try:
+        insight = generate_chat_insight(
+            context,
+            results
+    )
+    except Exception as e:
+        print(f"Insight generation error: {e}")
+        insight = "Unable to generate AI insight."
 
     chat_history[session_id].append(
         {
