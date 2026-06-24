@@ -12,17 +12,9 @@
 
 ## Overview
 
-This project is a production-style **end-to-end analytics engineering system** that simulates an e-commerce data platform.
-
-It demonstrates a modern ELT architecture combining:
-
-- Orchestrated ingestion pipelines (Prefect)
-- Modular transformation layer (dbt)
-- Lightweight analytical warehouse (DuckDB)
-- Analytics serving API (FastAPI)
-- LLM-powered natural language analytics interface
-
-The system supports both **SQL-based analytics workflows** and **natural language querying of business metrics**.
+This project is a production-style end-to-end analytics engineering system simulating an e-commerce data platform.
+It combines modern data engineering practices with an AI-powered analytics interface, enabling both SQL-based and natural language querying of business metrics.
+The system demonstrates a full ELT + Analytics + AI serving layer architecture.
 
 ---
 
@@ -53,10 +45,10 @@ The system supports both **SQL-based analytics workflows** and **natural languag
             +----------+-----------+
                        |
                        v
-            +----------------------+
-            |   Analytics Layer    |
-            | SQL + FastAPI + LLM  |
-            +----------------------+
+         +-----------------------------+
+         |     Serving & AI Layer      |
+         | FastAPI + SQL + LLM Agent   |
+         +-----------------------------+
 
 ---
 
@@ -65,11 +57,11 @@ The system supports both **SQL-based analytics workflows** and **natural languag
 
 ## System Components
 
-### 1. Data Ingestion Layer (Python + Prefect)
+### 1. Data Ingestion Layer (Python)
 - Incremental CSV ingestion with file tracking
 - Prevents duplicate processing
-- Designed for batch-oriented ELT workloads
-- Integrated with Prefect for orchestration, retries, and scheduling
+- Batch-oriented ELT simulation
+- Designed for extensibility into streaming ingestion
 
 ---
 
@@ -111,56 +103,60 @@ Includes:
 
 ---
 
-### 5. Serving Layer (FastAPI)
-Exposes analytics through REST endpoints:
-
-- `/top-products`
-- `/monthly-revenue`
-- `/revenue-by-segment`
-- `/ask` (LLM-powered analytics interface)
-
-This layer bridges:
-- SQL analytics
-- Business consumption
-- Natural language interaction
+### 5. Serving Layer (FastAPI + AI Agent)
+The API exposes both structured analytics and AI-powered insights.
+📊 REST Endpoints
+- /top-products
+- /monthly-revenue
+- /revenue-by-segment
 
 ---
 
-## AI Analytics Layer (LLM-Powered)
+## AI Analytics Layer (/agent)
 
-The system includes an AI interface powered by GPT-4o-mini for natural language analytics.
+This system includes an LLM-powered analytics agent that acts as a natural language interface to the data warehouse.
+🧩 Agent Architecture
 
-### Capabilities
+User Question
+     ↓
+Planner Node (tool selection)
+     ↓
+Tool Node (DuckDB execution)
+     ↓
+Compute Node (business metrics)
+     ↓
+Analyst Node (LLM insights)
 
-- Natural language → metric routing
-- Dynamic SQL execution via dbt/DuckDB layer
-- KPI explanation generation
-- Business insight summarization
-- Context-aware follow-up questions (session-based)
 
-### Example Flow
+🧠 Capabilities
+* Natural language → metric routing
+* Multi-tool execution (when needed)
+* Automated KPI computation
+* Business insight generation
+* Context-aware session handling
 
-**User question:**
-> What are the top products this month?
-
-**System execution:**
-1. LLM classifies intent (product analytics)
-2. Routes to dbt model / SQL query
-3. Executes against DuckDB
-4. Returns structured results
-5. LLM generates business interpretation
-
----
+💬 Example
+User:
+What are the top products this month?
+System Flow:
+1. LLM identifies top_products tool
+2. Executes DuckDB query
+3. Computes revenue contribution %
+4. Generates business explanation via LLM
+Output:
+* Structured metrics
+* Business insights
+* Contribution analysis
 
 ## Tech Stack
 
-- Python 3.12
-- Prefect (workflow orchestration)
-- dbt-core (analytics engineering)
-- DuckDB (analytical warehouse)
-- FastAPI (serving layer)
-- OpenAI GPT-4o-mini (LLM layer)
-- SQL (core transformation logic)
+* Python 3.12
+* FastAPI
+* DuckDB
+* dbt-core
+* Prefect
+* Gemini / GPT-style LLMs
+* SQL (core analytics logic)
 
 ---
 
