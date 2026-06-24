@@ -14,7 +14,7 @@ DATA_DIR = BASE_DIR / "data"
 
 CUSTOMERS_PATH = DATA_DIR / "customers.csv"
 PRODUCTS_PATH = DATA_DIR / "products.csv"
-DAILY_FOLDER = DATA_DIR / "data" / "daily_orders"
+DAILY_FOLDER = DATA_DIR / "daily_orders"
 
 DAILY_FOLDER.mkdir(parents=True, exist_ok=True)
 

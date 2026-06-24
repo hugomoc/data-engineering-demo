@@ -24,6 +24,9 @@ ecommerce_project/logs/
 # Prefect
 .prefect/
 
+# data
+data/
+
 # dbt build artifacts
 target/
 dbt_packages/

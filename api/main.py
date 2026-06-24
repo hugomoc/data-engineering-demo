@@ -2,11 +2,22 @@ from fastapi import FastAPI
 from collections import defaultdict
 from dotenv import load_dotenv
 from pathlib import Path
+from typing import Dict, Any
 
 import google.generativeai as genai
 import duckdb
 import os
 import json
+
+
+class AgentState:
+    def __init__(self, question: str):
+        self.question = question
+        self.selected_tools = []
+        self.raw_data = {}
+        self.computed_data = {}
+        self.final_answer = None
+        
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -113,7 +124,7 @@ def llm_route_question(question: str):
         }
     )
 
-    metric = response.text.strip().lower()
+    metric = response.text.strip().lower().replace(".", "").replace(" ", "_")
 
     print(f"LLM selected metric: {metric}")
 
@@ -121,6 +132,165 @@ def llm_route_question(question: str):
         return metric
 
     return None
+
+def compute_revenue_delta(monthly_data):
+    if not monthly_data or len(monthly_data) < 2:
+        return {
+            "error": "Need at least 2 months of data"
+        }
+
+    sorted_data = sorted(monthly_data, key=lambda x: x["month"])
+
+    prev = sorted_data[-2]
+    curr = sorted_data[-1]
+
+    delta = curr["revenue"] - prev["revenue"]
+    pct_change = (delta / prev["revenue"]) * 100 if prev["revenue"] else 0
+
+    return {
+        "previous_month": prev,
+        "current_month": curr,
+        "absolute_change": delta,
+        "percent_change": pct_change
+    }
+
+def compute_product_contribution(top_products):
+    total = sum(p["revenue"] for p in top_products)
+
+    return [
+        {
+            "product": p["product_name"],
+            "revenue": p["revenue"],
+            "share": (p["revenue"] / total) * 100 if total else 0
+        }
+        for p in top_products
+    ]
+
+def compute_segment_contribution(segments):
+    total = sum(s["revenue"] for s in segments)
+
+    return [
+        {
+            "segment": s["segment"],
+            "revenue": s["revenue"],
+            "share": (s["revenue"] / total) * 100 if total else 0
+        }
+        for s in segments
+    ]
+
+def get_top_products():
+    return run_query("top_products")
+
+def get_revenue_by_segment():
+    return run_query("revenue_by_segment")
+
+def get_monthly_revenue():
+    return run_query("monthly_revenue")
+
+
+TOOLS = {
+    "top_products": get_top_products,
+    "revenue_by_segment": get_revenue_by_segment,
+    "monthly_revenue": get_monthly_revenue,
+}
+
+ALLOWED_TOOLS = set(TOOLS.keys())
+
+
+def planner_node(state: AgentState):
+    tool_prompt = f"""
+    You are a strict tool selector.
+
+    Available tools:
+    - top_products
+    - revenue_by_segment
+    - monthly_revenue
+
+    Rules:
+    - You MUST return only valid tool names
+    - You may return 1 or 2 tools max
+    - No explanations
+    - No extra text
+
+    Question:
+    {state.question}    
+    """
+
+    response = model.generate_content(
+        tool_prompt,
+        generation_config={"temperature": 0}
+    )
+
+    state.selected_tools = [
+        t.strip()
+        for t in response.text.split(",")
+        if t.strip() in TOOLS
+    ]
+
+    if not state.selected_tools:
+        state.selected_tools = ["monthly_revenue"]
+
+    return state
+
+def tool_node(state: AgentState):
+    for tool in state.selected_tools:
+        state.raw_data[tool] = TOOLS[tool]()
+    return state
+
+
+def compute_node(state: AgentState):
+    if "monthly_revenue" in state.raw_data:
+        state.computed_data["revenue_delta"] = compute_revenue_delta(
+            state.raw_data["monthly_revenue"]
+        )
+
+    if "top_products" in state.raw_data:
+        state.computed_data["product_contribution"] = compute_product_contribution(
+            state.raw_data["top_products"]
+        )
+
+    if "revenue_by_segment" in state.raw_data:
+        state.computed_data["segment_contribution"] = compute_segment_contribution(
+            state.raw_data["revenue_by_segment"]
+        )
+
+    return state
+
+def analyst_node(state: AgentState):
+    prompt = f"""
+    Question:
+    {state.question}
+
+    Raw Data:
+    {json.dumps(state.raw_data, indent=2)}
+
+    Computed Metrics:
+    {json.dumps(state.computed_data, indent=2)}
+
+    Provide insights.
+    """
+
+    response = model.generate_content(prompt)
+
+    state.final_answer = response.text
+    return state
+
+def run_agent(question: str):
+
+    state = AgentState(question)
+
+    state = planner_node(state)
+    state = tool_node(state)
+    state = compute_node(state)
+    state = analyst_node(state)
+
+    return {
+        "question": state.question,
+        "tools_used": state.selected_tools,
+        "data": state.raw_data,
+        "computed": state.computed_data,
+        "analysis": state.final_answer
+    }
 
 
 def generate_chat_insight(chat_context, results):
@@ -200,7 +370,7 @@ def ask(question: str, session_id: str = "default"):
 
     if is_comparison_question(question):
 
-        metric = last_metric[session_id]
+        last_metric["default"] = state.selected_tools[0]
 
         if not metric:
             return {
@@ -248,7 +418,7 @@ def ask(question: str, session_id: str = "default"):
             "error": "No matching metric found"
         }
 
-    last_metric[session_id] = metric
+    last_metric["default"] = state.selected_tools[0]
 
     table_name = METRICS[metric]["table"]
     results = run_query(table_name)
@@ -280,20 +450,23 @@ def ask(question: str, session_id: str = "default"):
     }
 
 
+
 @app.get("/top-products")
 def top_products():
-
-    return run_query("top_products")
+    return get_top_products()
 
 
 @app.get("/revenue-by-segment")
 def revenue_by_segment():
-
-    return run_query("revenue_by_segment")
+    return get_revenue_by_segment()
 
 
 @app.get("/monthly-revenue")
 def monthly_revenue():
 
-    return run_query("monthly_revenue")
+    return get_monthly_revenue()
+    
 
+@app.get("/agent")
+def agent(question: str):
+    return run_agent(question)
