@@ -2,7 +2,8 @@ from fastapi import FastAPI
 from collections import defaultdict
 from dotenv import load_dotenv
 from pathlib import Path
-from typing import Dict, Any
+from dataclasses import dataclass, field
+from google.api_core.exceptions import ResourceExhausted
 
 import google.generativeai as genai
 import duckdb
@@ -10,50 +11,29 @@ import os
 import json
 
 
+@dataclass
 class AgentState:
-    def __init__(self, question: str):
-        self.question = question
-        self.selected_tools = []
-        self.raw_data = {}
-        self.computed_data = {}
-        self.final_answer = None
-        
+    question: str
+    planner_reason: str = ""
+    selected_tools: list = field(default_factory=list)
+    raw_data: dict = field(default_factory=dict)
+    computed_data: dict = field(default_factory=dict)
+    final_answer: str | None = None
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / ".env")
 
-print("KEY LOADED:", os.getenv("GEMINI_API_KEY"))
+print("Gemini API key loaded:", bool(os.getenv("GEMINI_API_KEY")))
 
 app = FastAPI()
 
 DB_PATH = BASE_DIR / "ecommerce_project" / "dev.duckdb"
 
-
-
 chat_history = defaultdict(list)
-last_metric = defaultdict(lambda: None)
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 model = genai.GenerativeModel("gemini-2.5-flash-lite")
-
-METRICS = {
-    "top_products": {
-        "table": "top_products",
-        "comparison_table": "top_products_month",
-        "description": "Best selling products by revenue"
-    },
-    "revenue_by_segment": {
-        "table": "revenue_by_segment",
-        "comparison_table": "revenue_by_segment_month",
-        "description": "Revenue grouped by customer segment"
-    },
-    "monthly_revenue": {
-        "table": "monthly_revenue",
-        "comparison_table": "monthly_revenue_month",
-        "description": "Revenue trends over time"
-    }    
-}
 
 
 def run_query(table_name: str):
@@ -63,7 +43,8 @@ def run_query(table_name: str):
         "top_products_month",
         "revenue_by_segment",
         "revenue_by_segment_month",
-        "monthly_revenue"
+        "monthly_revenue",
+        "monthly_revenue_month"
     }:
         raise ValueError(f"Invalid table: {table_name}")
 
@@ -79,59 +60,6 @@ def run_query(table_name: str):
     return result.to_dict(orient="records")
 
 
-def is_comparison_question(question: str) -> bool:
-
-    keywords = [
-        "compare",
-        "vs",
-        "versus",
-        "last month",
-        "previous month",
-        "difference",
-        "change"
-    ]
-
-    q = question.lower()
-
-    return any(k in q for k in keywords)
-
-
-def llm_route_question(question: str):
-
-    metric_list = {
-        key: value["description"]
-        for key, value in METRICS.items()
-    }
-
-    prompt = f"""
-    You are an analytics routing system.
-
-    Available metrics:
-    {json.dumps(metric_list, indent=2)}
-
-    Rules:
-    - Return ONLY the metric key
-    - If nothing matches return "none"
-
-    Question:
-    {question}
-    """
-
-    response = model.generate_content(
-        prompt,
-        generation_config={
-            "temperature": 0
-        }
-    )
-
-    metric = response.text.strip().lower().replace(".", "").replace(" ", "_")
-
-    print(f"LLM selected metric: {metric}")
-
-    if metric in METRICS:
-        return metric
-
-    return None
 
 def compute_revenue_delta(monthly_data):
     if not monthly_data or len(monthly_data) < 2:
@@ -187,50 +115,86 @@ def get_revenue_by_segment():
 def get_monthly_revenue():
     return run_query("monthly_revenue")
 
+def get_anomalies_sales():
+    monthly_data = run_query("monthly_revenue")
+    return detect_sales_anomalies(monthly_data)
+
 
 TOOLS = {
     "top_products": get_top_products,
     "revenue_by_segment": get_revenue_by_segment,
     "monthly_revenue": get_monthly_revenue,
+    "anomalies_sales": get_anomalies_sales,
 }
 
 ALLOWED_TOOLS = set(TOOLS.keys())
 
 
 def planner_node(state: AgentState):
+
     tool_prompt = f"""
-    You are a strict tool selector.
+    You are the planner for an analytics agent.
 
     Available tools:
+
     - top_products
+      Returns the highest revenue products.
+
     - revenue_by_segment
+      Returns revenue grouped by customer segment.
+
     - monthly_revenue
+      Returns monthly revenue history.
+
+    - anomalies_sales
+      Returns months with unusual revenue.
 
     Rules:
-    - You MUST return only valid tool names
-    - You may return 1 or 2 tools max
-    - No explanations
-    - No extra text
+    - Choose every tool needed to answer the question.
+    - Return ONLY comma-separated tool names.
+    - Never invent tool names.
+    - Maximum 3 tools.
 
     Question:
-    {state.question}    
+    {state.question}
     """
 
-    response = model.generate_content(
-        tool_prompt,
-        generation_config={"temperature": 0}
-    )
+    try:
 
-    state.selected_tools = [
-        t.strip()
-        for t in response.text.split(",")
-        if t.strip() in TOOLS
-    ]
+        response = model.generate_content(
+            tool_prompt,
+            generation_config={"temperature": 0}
+        )
 
-    if not state.selected_tools:
+        state.selected_tools = list(dict.fromkeys([
+            t.strip()
+            for t in response.text.split(",")
+            if t.strip() in TOOLS
+        ]))
+        
+
+    except Exception as e:
+
+        print(f"Planner error: {e}")
         state.selected_tools = ["monthly_revenue"]
 
+    if not state.selected_tools:
+        q = state.question.lower()
+
+        if "segment" in q:
+            state.selected_tools = ["revenue_by_segment"]
+
+        elif "product" in q:
+            state.selected_tools = ["top_products"]
+
+        elif "anomal" in q:
+            state.selected_tools = ["anomalies_sales"]
+
+        else:
+            state.selected_tools = ["monthly_revenue"]
+
     return state
+    
 
 def tool_node(state: AgentState):
     for tool in state.selected_tools:
@@ -239,6 +203,7 @@ def tool_node(state: AgentState):
 
 
 def compute_node(state: AgentState):
+
     if "monthly_revenue" in state.raw_data:
         state.computed_data["revenue_delta"] = compute_revenue_delta(
             state.raw_data["monthly_revenue"]
@@ -253,13 +218,22 @@ def compute_node(state: AgentState):
         state.computed_data["segment_contribution"] = compute_segment_contribution(
             state.raw_data["revenue_by_segment"]
         )
+    
+    if "anomalies_sales" in state.raw_data:
+        state.computed_data["anomalies_sales"] = state.raw_data["anomalies_sales"]
+            
 
     return state
-
+    
+    
 def analyst_node(state: AgentState):
+
     prompt = f"""
     Question:
     {state.question}
+
+    Tools Used:
+    {", ".join(state.selected_tools)}
 
     Raw Data:
     {json.dumps(state.raw_data, indent=2)}
@@ -267,13 +241,46 @@ def analyst_node(state: AgentState):
     Computed Metrics:
     {json.dumps(state.computed_data, indent=2)}
 
-    Provide insights.
+    Answer the user's question using ALL available data.
+    If multiple datasets were provided, combine them into a single explanation.
     """
 
-    response = model.generate_content(prompt)
+    try:
+        response = model.generate_content(prompt)
+        state.final_answer = response.text
 
-    state.final_answer = response.text
+    except ResourceExhausted:
+
+        rev = state.computed_data.get("revenue_delta", {})
+        products = state.computed_data.get("product_contribution", [])
+        segments = state.computed_data.get("segment_contribution", [])
+        anomalies = state.computed_data.get("anomalies_sales", [])
+
+        top_product = products[0] if products else {}
+        top_segment = max(segments, key=lambda x: x["share"]) if segments else {}
+
+        state.final_answer = f"""
+    Executive Summary
+
+    Revenue increased from ${rev.get('previous_month', {}).get('revenue', 0):,.0f}
+    to ${rev.get('current_month', {}).get('revenue', 0):,.0f},
+    a change of {rev.get('percent_change', 0):.1f}%.
+
+    Top Product:
+    {top_product.get('product', 'N/A')}
+    generated ${top_product.get('revenue', 0):,.0f}
+    and contributed {top_product.get('share', 0):.1f}% of product revenue.
+
+    Top Customer Segment:
+    {top_segment.get('segment', 'N/A')}
+    contributed {top_segment.get('share', 0):.1f}% of total revenue.
+
+    Anomalies:
+    {len(anomalies)} unusual month(s) detected.
+    """
+
     return state
+    
 
 def run_agent(question: str):
 
@@ -285,69 +292,8 @@ def run_agent(question: str):
     state = analyst_node(state)
 
     return {
-        "question": state.question,
-        "tools_used": state.selected_tools,
-        "data": state.raw_data,
-        "computed": state.computed_data,
-        "analysis": state.final_answer
+    "answer": state.final_answer
     }
-
-
-def generate_chat_insight(chat_context, results):
-
-    prompt = f"""
-    You are a senior analytics assistant.
-
-    Conversation:
-    {json.dumps(chat_context, indent=2)}
-
-    Latest Results:
-    {json.dumps(results, indent=2)}
-
-    Rules:
-    - Be concise
-    - Explain business meaning
-    - Do not hallucinate values
-    - Keep response between 3 and 5 sentences
-    """
-
-    response = model.generate_content(
-        prompt,
-        generation_config={
-            "temperature": 0.3
-        }
-    )
-
-    return response.text.strip()
-
-
-def generate_comparison_insight(metric_name, comparison_results):
-
-    prompt = f"""
-    You are a senior business analyst.
-
-    Metric:
-    {metric_name}
-
-    Comparison Results:
-    {json.dumps(comparison_results, indent=2)}
-
-    Explain:
-    - Month-over-month changes
-    - Key drivers
-    - Notable increases or decreases
-
-    Keep the explanation concise.
-    """
-
-    response = model.generate_content(
-        prompt,
-        generation_config={
-            "temperature": 0.3
-        }
-    )
-
-    return response.text.strip()
 
 
 @app.get("/")
@@ -356,6 +302,26 @@ def home():
     return {
         "message": "AI Analytics API is running"
     }
+    
+    
+def detect_sales_anomalies(monthly_data):
+
+    anomalies = []
+
+    revenues = [r["revenue"] for r in monthly_data]
+
+    avg = sum(revenues) / len(revenues)
+
+    for row in monthly_data:
+
+        if row["revenue"] < avg * 0.8:
+            anomalies.append({
+                "month": row["month"],
+                "revenue": row["revenue"],
+                "reason": "Below expected range"
+            })
+
+    return anomalies
 
 
 @app.get("/ask")
@@ -368,86 +334,27 @@ def ask(question: str, session_id: str = "default"):
         }
     )
 
-    if is_comparison_question(question):
+    try:
 
-        last_metric["default"] = state.selected_tools[0]
+        agent_response = run_agent(question)
 
-        if not metric:
-            return {
-                "error": "Ask about a metric first. Example: top products"
+        chat_history[session_id].append(
+            {
+                "role": "assistant",
+                "content": agent_response["answer"]
             }
+        )
 
-        comparison_table = METRICS[metric]["comparison_table"]
-        comparison_results = run_query(comparison_table)
+        return agent_response
 
-        try:
-            comparison_insight = generate_comparison_insight(
-                metric,
-                comparison_results
-    )
-        except Exception as e:
-            print(f"Comparison insight error: {e}")
-            comparison_insight = "Unable to generate comparison insight."
+    except Exception as e:
+
+        print(f"Agent error: {e}")
 
         return {
             "question": question,
-            "metric": metric,
-            "comparison_results": comparison_results,
-            "comparison_insight": comparison_insight
+            "error": str(e)
         }
-
-    try:
-        metric = llm_route_question(question)
-    except Exception as e:
-        print(f"LLM routing error: {e}")
-
-        question_lower = question.lower()
-
-        if "segment" in question_lower:
-            metric = "revenue_by_segment"
-        elif "product" in question_lower:
-            metric = "top_products"
-        elif "revenue" in question_lower:
-            metric = "monthly_revenue"
-        else:
-            metric = None
-
-    if not metric:
-        return {
-            "question": question,
-            "error": "No matching metric found"
-        }
-
-    last_metric["default"] = state.selected_tools[0]
-
-    table_name = METRICS[metric]["table"]
-    results = run_query(table_name)
-
-    context = chat_history[session_id][-6:]
-
-    try:
-        insight = generate_chat_insight(
-            context,
-            results
-    )
-    except Exception as e:
-        print(f"Insight generation error: {e}")
-        insight = "Unable to generate AI insight."
-
-    chat_history[session_id].append(
-        {
-            "role": "assistant",
-            "content": insight
-        }
-    )
-
-    return {
-    "question": question,
-    "metric": metric,
-    "table_used": table_name,
-    "results": results,
-    "insight": insight
-    }
 
 
 
@@ -463,8 +370,12 @@ def revenue_by_segment():
 
 @app.get("/monthly-revenue")
 def monthly_revenue():
-
     return get_monthly_revenue()
+
+@app.get("/anomalies_sales")
+def anomalies_sales():   
+    monthly_data = run_query("monthly_revenue")
+    return detect_sales_anomalies(monthly_data)
     
 
 @app.get("/agent")
