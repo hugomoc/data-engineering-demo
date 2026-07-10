@@ -20,7 +20,7 @@ The system demonstrates a full ELT + Analytics + AI serving layer architecture.
 
 ## Demo
 
-![AI Analytics Agent Demo]<video src="assets/agent_demo.mp4" controls="controls" width="800"></video>
+<video src="assets/agent_demo.mp4" controls="controls" width="800"></video>
 
 ---
 
