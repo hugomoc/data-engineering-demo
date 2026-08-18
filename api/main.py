@@ -1,3 +1,13 @@
+"""FastAPI service for the ecommerce analytics agent.
+
+Architecture:
+SOURCE DATA -> INGESTION -> VALIDATION -> TRANSFORMATION/DBT ->
+BUSINESS-READY ANALYTICS -> FASTAPI -> AI AGENT -> NATURAL-LANGUAGE RESPONSE.
+
+The LLM is used for planning and summarization. The business metrics are read
+from dbt-built marts or calculated by deterministic Python helper functions.
+"""
+
 from fastapi import FastAPI
 from collections import defaultdict
 from dotenv import load_dotenv
@@ -13,6 +23,8 @@ import json
 
 @dataclass
 class AgentState:
+    """Mutable state passed through the agent nodes for one question."""
+
     question: str
     planner_reason: str = ""
     selected_tools: list = field(default_factory=list)
@@ -37,7 +49,10 @@ model = genai.GenerativeModel("gemini-2.5-flash-lite")
 
 
 def run_query(table_name: str):
+    """Read a whitelisted dbt analytics table from DuckDB."""
 
+    # Table names cannot be parameterized in DuckDB, so the explicit allow-list
+    # protects the f-string query from arbitrary table access.
     if table_name not in {
         "top_products",
         "top_products_month",
@@ -62,6 +77,8 @@ def run_query(table_name: str):
 
 
 def compute_revenue_delta(monthly_data):
+    """Compare the latest two months of revenue for trend questions."""
+
     if not monthly_data or len(monthly_data) < 2:
         return {
             "error": "Need at least 2 months of data"
@@ -83,6 +100,8 @@ def compute_revenue_delta(monthly_data):
     }
 
 def compute_product_contribution(top_products):
+    """Calculate each product's share of returned product revenue."""
+
     total = sum(p["revenue"] for p in top_products)
 
     return [
@@ -95,6 +114,8 @@ def compute_product_contribution(top_products):
     ]
 
 def compute_segment_contribution(segments):
+    """Calculate each customer segment's share of returned revenue."""
+
     total = sum(s["revenue"] for s in segments)
 
     return [
@@ -107,15 +128,23 @@ def compute_segment_contribution(segments):
     ]
 
 def get_top_products():
+    """Tool: return the dbt mart used for product revenue questions."""
+
     return run_query("top_products")
 
 def get_revenue_by_segment():
+    """Tool: return the dbt mart used for segment revenue questions."""
+
     return run_query("revenue_by_segment")
 
 def get_monthly_revenue():
+    """Tool: return the dbt mart used for month-over-month questions."""
+
     return run_query("monthly_revenue")
 
 def get_anomalies_sales():
+    """Tool: derive anomaly rows from the monthly revenue mart."""
+
     monthly_data = run_query("monthly_revenue")
     return detect_sales_anomalies(monthly_data)
 
@@ -131,6 +160,13 @@ ALLOWED_TOOLS = set(TOOLS.keys())
 
 
 def planner_node(state: AgentState):
+    """Select the predefined analytics tools needed for the user's question.
+
+    The planner interprets the natural-language question and is instructed to
+    return only valid tool names. It does not calculate business metrics; the
+    selected tools fetch data, and later nodes compute deterministic metrics.
+    Returned names are filtered against TOOLS before execution.
+    """
 
     tool_prompt = f"""
     You are the planner for an analytics agent.
@@ -197,12 +233,15 @@ def planner_node(state: AgentState):
     
 
 def tool_node(state: AgentState):
+    """Execute each selected analytics tool and store its raw rows."""
+
     for tool in state.selected_tools:
         state.raw_data[tool] = TOOLS[tool]()
     return state
 
 
 def compute_node(state: AgentState):
+    """Add deterministic metrics derived from the selected tool outputs."""
 
     if "monthly_revenue" in state.raw_data:
         state.computed_data["revenue_delta"] = compute_revenue_delta(
@@ -227,6 +266,7 @@ def compute_node(state: AgentState):
     
     
 def analyst_node(state: AgentState):
+    """Ask Gemini to summarize raw data and computed metrics for the user."""
 
     prompt = f"""
     Question:
@@ -251,6 +291,8 @@ def analyst_node(state: AgentState):
 
     except ResourceExhausted:
 
+        # If the model quota is exhausted, the API still returns a useful
+        # deterministic summary from the metrics already computed in Python.
         rev = state.computed_data.get("revenue_delta", {})
         products = state.computed_data.get("product_contribution", [])
         segments = state.computed_data.get("segment_contribution", [])
@@ -283,6 +325,7 @@ def analyst_node(state: AgentState):
     
 
 def run_agent(question: str):
+    """Run the planner -> tool -> compute -> analyst workflow."""
 
     state = AgentState(question)
 
@@ -305,6 +348,7 @@ def home():
     
     
 def detect_sales_anomalies(monthly_data):
+    """Flag months whose revenue falls below 80% of the average month."""
 
     anomalies = []
 
@@ -326,6 +370,7 @@ def detect_sales_anomalies(monthly_data):
 
 @app.get("/ask")
 def ask(question: str, session_id: str = "default"):
+    """Main API endpoint used by the Streamlit app."""
 
     chat_history[session_id].append(
         {

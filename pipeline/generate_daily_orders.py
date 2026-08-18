@@ -1,3 +1,9 @@
+"""Generate a synthetic daily orders CSV for incremental-load demos.
+
+The incremental loader treats each generated CSV as a new source extract. This
+script is useful for creating fresh order data without manually editing files.
+"""
+
 import pandas as pd
 import random
 from datetime import datetime
@@ -32,6 +38,7 @@ rows = []
 
 for _ in range(NUM_ORDERS):
 
+    # Each row mimics one ecommerce order event with a stable UUID primary key.
     quantity = random.randint(1, 5)
     price = random.randint(20, 500)
 

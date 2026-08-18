@@ -3,7 +3,10 @@
     unique_key='order_id'
 ) }}
 
--- Grain: one row per order_id
+-- Core fact table for analytics. Grain: one row per order_id.
+-- Staging models supply clean order, customer, and product fields; this model
+-- denormalizes them so downstream marts and the API can query business-ready
+-- sales data without repeating joins.
 
 SELECT
     o.order_id,

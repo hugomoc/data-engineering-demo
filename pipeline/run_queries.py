@@ -1,3 +1,9 @@
+"""Legacy SQL runner for materializing analytics tables outside dbt.
+
+The active analytics layer lives in dbt, but this script documents the earlier
+pattern: read SQL files, create DuckDB tables, and preview the results.
+"""
+
 import duckdb
 
 from logger_config import logger
@@ -16,6 +22,7 @@ queries = {
 
 
 def main():
+    """Execute each SQL file and replace its matching DuckDB table."""
 
     con = duckdb.connect(str(DB_PATH))
 
@@ -32,7 +39,7 @@ def main():
         with open(path, "r") as file:
             query = file.read()
 
-        # Create analytics table
+        # Materialize the query result into a table named after the SQL file key.
         con.execute(f"""
             CREATE OR REPLACE TABLE {table_name} AS
             {query}
@@ -40,7 +47,7 @@ def main():
 
         logger.info(f"Created table: {table_name}")
 
-        # Preview results
+        # Print a tiny preview so manual runs can verify the transformation.
         preview = con.execute(f"""
             SELECT *
             FROM {table_name}

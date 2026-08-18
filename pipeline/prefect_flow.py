@@ -1,3 +1,11 @@
+"""Prefect orchestration for the ecommerce analytics pipeline.
+
+The flow models the production order of operations: ingest new source data,
+validate the raw fact table, then let dbt build and test the analytics layer.
+DuckDB permits one writer at a time, so each task closes its connection before
+the next task starts and dbt is run with a single thread.
+"""
+
 import incremental_load
 import quality_checks
 import subprocess
@@ -11,6 +19,8 @@ from logger_config import logger
 
 @task(name="incremental-load", retries=0, retry_delay_seconds=5)
 def load():
+    """Load new CSV extracts into the DuckDB source tables."""
+
     logger.info("Starting incremental load")
 
     incremental_load.main()  # MUST fully close DB inside
@@ -23,6 +33,8 @@ def load():
 
 @task(name="quality-checks", retries=1)
 def validate():
+    """Run lightweight source-table quality checks before dbt transforms."""
+
     logger.info("Starting quality checks")
 
     quality_checks.main()  # MUST be read-only + closed properly
@@ -34,6 +46,8 @@ def validate():
 
 @task(name="dbt-run", retries=1)
 def transform():
+    """Build and test the dbt analytics models after ingestion succeeds."""
+
     logger.info("Starting dbt run")
 
     project_dir = (
@@ -41,9 +55,10 @@ def transform():
     )
 
     env = os.environ.copy()
+    # Keep dbt single-threaded to avoid concurrent DuckDB writer conflicts.
     env["DBT_THREADS"] = "1"
 
-    # run dbt run
+    # Build dbt models from staging through marts.
     subprocess.run(
         ["dbt", "run"],
         cwd=project_dir,
@@ -51,7 +66,7 @@ def transform():
         env=env
     )
 
-    # run dbt test
+    # Run dbt tests after the build so data quality failures are visible.
     subprocess.run(
         ["dbt", "test"],
         cwd=project_dir,
@@ -64,6 +79,7 @@ def transform():
 
 @flow(name="ecommerce-pipeline")
 def ecommerce_pipeline():
+    """Orchestrate ingestion, validation, and dbt transformation."""
 
     logger.info("Pipeline started")
 

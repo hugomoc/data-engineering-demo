@@ -6,6 +6,9 @@ sources:
     description: Raw ecommerce ingestion layer (DuckDB)
 
     tables:
+      # Appended by the Python incremental loader; dbt reads it but does not own
+      # the source table lifecycle.
       - name: incremental_orders
+      # Refreshed from CSV snapshots by Python before dbt transformations run.
       - name: customers
       - name: products

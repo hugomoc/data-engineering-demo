@@ -1,8 +1,14 @@
+"""One-time CSV bootstrap loader for the simple local DuckDB database.
+
+This script predates the dbt-oriented incremental flow and loads the three
+base CSV files directly into data.db for quick local experimentation.
+"""
+
 import duckdb
 
 con = duckdb.connect("data.db")
 
-# Load CSV into tables
+# Replace the bootstrap tables so local experiments start from the CSV state.
 con.execute("""
 CREATE OR REPLACE TABLE customers AS
 SELECT * FROM read_csv_auto('data/customers.csv');

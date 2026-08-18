@@ -1,4 +1,5 @@
 -- models/marts/products/top_products.sql
+-- Product mart at one row per product_name, ranked by total revenue.
 
 SELECT
     product_name,

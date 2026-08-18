@@ -1,3 +1,11 @@
+"""Incremental ingestion step for the ecommerce demo pipeline.
+
+Dimension CSVs are refreshed each run, while daily order CSVs are appended only
+once into the DuckDB fact source table. The processed-files ledger keeps reruns
+idempotent at the file level, and the order_id anti-join protects against row
+duplicates inside already-seen data.
+"""
+
 import duckdb
 import os
 import pandas as pd
@@ -17,6 +25,7 @@ TRACKING_FILE = BASE_DIR / "data" / "processed_files.txt"
 
 
 def main():
+    """Load dimensions and append only new daily order files into DuckDB."""
 
     con = None    
     
@@ -29,7 +38,7 @@ def main():
         logger.info("DAILY_FOLDER: %s", DAILY_FOLDER)
         logger.info("DB_PATH: %s", DB_PATH)
       
-        #Load dimension tables       
+        # Refresh small dimension tables from their latest CSV snapshots.
 
         con.execute(f"""
         CREATE OR REPLACE TABLE customers AS
@@ -48,7 +57,7 @@ def main():
         logger.info("Products loaded")
 
         
-        #Create incremental fact table
+        # Create the append-only fact source table if this is the first run.
        
 
         con.execute("""
@@ -67,7 +76,7 @@ def main():
         logger.info("incremental_orders table ready")
 
         
-        #Read processed files
+        # Read the local file ledger so reruns skip files already ingested.
         
 
         if TRACKING_FILE.exists():
@@ -82,7 +91,7 @@ def main():
 )
 
         
-        #Process new files
+        # Process only CSV files that are not yet recorded in the ledger.
         
 
         new_files_processed = 0
@@ -164,7 +173,8 @@ def main():
                         inserted_rows
                     )
 
-                # Mark file as processed
+                # Mark the file as processed after the insert attempt so future
+                # reruns do not reload the same daily extract.
                 with open(TRACKING_FILE, "a") as f:
                     f.write(filename + "\n")
 

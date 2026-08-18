@@ -1,3 +1,5 @@
+"""Shared logger configuration for pipeline scripts and Prefect tasks."""
+
 import logging
 
 logging.basicConfig(

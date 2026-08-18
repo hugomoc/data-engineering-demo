@@ -1,3 +1,9 @@
+"""Source-table quality checks for the incremental ecommerce orders table.
+
+These checks run before dbt so basic ingestion problems are visible close to
+the source: missing identifiers, duplicate orders, row counts, and recency.
+"""
+
 import duckdb
 
 from logger_config import logger
@@ -8,6 +14,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "ecommerce_project" / "dev.duckdb"
 
 def main():
+    """Inspect incremental_orders and log source data quality signals."""
 
     con = None
     
@@ -17,7 +24,7 @@ def main():
         
         logger.info("Connected to DuckDB")
 
-        # Null check
+        # Required identifier check: every order needs a stable primary key.
         nulls = con.execute("""
         SELECT COUNT(*)
         FROM incremental_orders
@@ -26,7 +33,7 @@ def main():
 
         logger.info(f"Null order IDs: {nulls}")
 
-        # Duplicate check
+        # Duplicate check: duplicate order IDs would inflate all revenue marts.
         dupes = con.execute("""
         SELECT order_id, COUNT(*)
         FROM incremental_orders
@@ -43,7 +50,7 @@ def main():
             logger.warning("Duplicate orders detected")
             print(dupes)
         
-        # Total row count
+        # Row count and max order date provide quick operational observability.
         total_rows = con.execute("""
         SELECT COUNT(*)
         FROM incremental_orders
