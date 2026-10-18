@@ -335,7 +335,9 @@ def run_agent(question: str):
     state = analyst_node(state)
 
     return {
-    "answer": state.final_answer
+    "answer": state.final_answer,
+    "tools_used": state.selected_tools,
+    "metrics": state.computed_data
     }
 
 
