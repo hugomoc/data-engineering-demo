@@ -19,6 +19,14 @@ import google.generativeai as genai
 import duckdb
 import os
 import json
+import logging
+
+from api.metrics import (
+    compute_revenue_delta, compute_product_contribution,
+    compute_segment_contribution, detect_sales_anomalies, build_fallback_summary,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -26,7 +34,6 @@ class AgentState:
     """Mutable state passed through the agent nodes for one question."""
 
     question: str
-    planner_reason: str = ""
     selected_tools: list = field(default_factory=list)
     raw_data: dict = field(default_factory=dict)
     computed_data: dict = field(default_factory=dict)
@@ -34,9 +41,6 @@ class AgentState:
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-load_dotenv(BASE_DIR / ".env")
-
-print("Gemini API key loaded:", bool(os.getenv("GEMINI_API_KEY")))
 
 app = FastAPI()
 
@@ -44,8 +48,20 @@ DB_PATH = BASE_DIR / "ecommerce_project" / "dev.duckdb"
 
 chat_history = defaultdict(list)
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-2.5-flash-lite")
+model = None
+
+
+def get_model():
+    """Load credentials and initialize Gemini only when the agent is used."""
+    global model
+    if model is None:
+        load_dotenv(BASE_DIR / ".env")
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY is required to call the agent")
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.5-flash-lite")
+    return model
 
 
 def run_query(table_name: str):
@@ -58,8 +74,7 @@ def run_query(table_name: str):
         "top_products_month",
         "revenue_by_segment",
         "revenue_by_segment_month",
-        "monthly_revenue",
-        "monthly_revenue_month"
+        "monthly_revenue"
     }:
         raise ValueError(f"Invalid table: {table_name}")
 
@@ -76,56 +91,8 @@ def run_query(table_name: str):
 
 
 
-def compute_revenue_delta(monthly_data):
-    """Compare the latest two months of revenue for trend questions."""
 
-    if not monthly_data or len(monthly_data) < 2:
-        return {
-            "error": "Need at least 2 months of data"
-        }
 
-    sorted_data = sorted(monthly_data, key=lambda x: x["month"])
-
-    prev = sorted_data[-2]
-    curr = sorted_data[-1]
-
-    delta = curr["revenue"] - prev["revenue"]
-    pct_change = (delta / prev["revenue"]) * 100 if prev["revenue"] else 0
-
-    return {
-        "previous_month": prev,
-        "current_month": curr,
-        "absolute_change": delta,
-        "percent_change": pct_change
-    }
-
-def compute_product_contribution(top_products):
-    """Calculate each product's share of returned product revenue."""
-
-    total = sum(p["revenue"] for p in top_products)
-
-    return [
-        {
-            "product": p["product_name"],
-            "revenue": p["revenue"],
-            "share": (p["revenue"] / total) * 100 if total else 0
-        }
-        for p in top_products
-    ]
-
-def compute_segment_contribution(segments):
-    """Calculate each customer segment's share of returned revenue."""
-
-    total = sum(s["revenue"] for s in segments)
-
-    return [
-        {
-            "segment": s["segment"],
-            "revenue": s["revenue"],
-            "share": (s["revenue"] / total) * 100 if total else 0
-        }
-        for s in segments
-    ]
 
 def get_top_products():
     """Tool: return the dbt mart used for product revenue questions."""
@@ -197,7 +164,7 @@ def planner_node(state: AgentState):
 
     try:
 
-        response = model.generate_content(
+        response = get_model().generate_content(
             tool_prompt,
             generation_config={"temperature": 0}
         )
@@ -286,40 +253,14 @@ def analyst_node(state: AgentState):
     """
 
     try:
-        response = model.generate_content(prompt)
+        response = get_model().generate_content(prompt)
         state.final_answer = response.text
 
     except ResourceExhausted:
 
         # If the model quota is exhausted, the API still returns a useful
         # deterministic summary from the metrics already computed in Python.
-        rev = state.computed_data.get("revenue_delta", {})
-        products = state.computed_data.get("product_contribution", [])
-        segments = state.computed_data.get("segment_contribution", [])
-        anomalies = state.computed_data.get("anomalies_sales", [])
-
-        top_product = products[0] if products else {}
-        top_segment = max(segments, key=lambda x: x["share"]) if segments else {}
-
-        state.final_answer = f"""
-    Executive Summary
-
-    Revenue increased from ${rev.get('previous_month', {}).get('revenue', 0):,.0f}
-    to ${rev.get('current_month', {}).get('revenue', 0):,.0f},
-    a change of {rev.get('percent_change', 0):.1f}%.
-
-    Top Product:
-    {top_product.get('product', 'N/A')}
-    generated ${top_product.get('revenue', 0):,.0f}
-    and contributed {top_product.get('share', 0):.1f}% of product revenue.
-
-    Top Customer Segment:
-    {top_segment.get('segment', 'N/A')}
-    contributed {top_segment.get('share', 0):.1f}% of total revenue.
-
-    Anomalies:
-    {len(anomalies)} unusual month(s) detected.
-    """
+        state.final_answer = build_fallback_summary(state.computed_data)
 
     return state
     
@@ -327,6 +268,7 @@ def analyst_node(state: AgentState):
 def run_agent(question: str):
     """Run the planner -> tool -> compute -> analyst workflow."""
 
+    get_model()
     state = AgentState(question)
 
     state = planner_node(state)
@@ -349,25 +291,6 @@ def home():
     }
     
     
-def detect_sales_anomalies(monthly_data):
-    """Flag months whose revenue falls below 80% of the average month."""
-
-    anomalies = []
-
-    revenues = [r["revenue"] for r in monthly_data]
-
-    avg = sum(revenues) / len(revenues)
-
-    for row in monthly_data:
-
-        if row["revenue"] < avg * 0.8:
-            anomalies.append({
-                "month": row["month"],
-                "revenue": row["revenue"],
-                "reason": "Below expected range"
-            })
-
-    return anomalies
 
 
 @app.get("/ask")
@@ -396,11 +319,11 @@ def ask(question: str, session_id: str = "default"):
 
     except Exception as e:
 
-        print(f"Agent error: {e}")
+        logger.exception("Agent failed to answer question")
 
         return {
             "question": question,
-            "error": str(e)
+            "error": "The agent could not answer this question."
         }
 
 
