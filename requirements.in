@@ -1,0 +1,11 @@
+duckdb
+dbt-duckdb
+prefect
+fastapi
+uvicorn
+pandas
+requests
+streamlit
+python-dotenv
+google-generativeai
+pytest
