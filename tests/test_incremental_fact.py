@@ -54,3 +54,21 @@ def test_incremental_fact_keeps_random_uuid_orders(tmp_path):
             assert connection.execute(
                 "SELECT count(*), count(DISTINCT order_id) FROM fct_sales"
             ).fetchone() == (30 * (batch + 1), 30 * (batch + 1))
+
+    # Deliberately corrupt only the disposable fact table to prove the gate fails.
+    with duckdb.connect(str(database)) as connection:
+        connection.execute("""DELETE FROM main.fct_sales WHERE order_id IN (
+            SELECT order_id FROM main.fct_sales ORDER BY order_id LIMIT 5
+        )""")
+        assert connection.execute("SELECT count(*) FROM main.fct_sales").fetchone()[0] == 55
+    result = subprocess.run(
+        [executable, "test", "--select", "assert_fct_sales_matches_orders",
+         "--project-dir", str(PROJECT), "--profiles-dir", str(PROJECT),
+         "--target-path", str(tmp_path / "target"),
+         "--log-path", str(tmp_path / "logs")],
+        cwd=PROJECT, env=environment, capture_output=True, text=True,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode != 0, output
+    assert "assert_fct_sales_matches_orders" in output, output
+    assert "FAIL 5" in output, output
