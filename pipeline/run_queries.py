@@ -1,5 +1,8 @@
 """Legacy SQL runner for materializing analytics tables outside dbt.
 
+LEGACY: expects a sql/ folder that is not included in this repository.
+Use dbt for the active analytics layer.
+
 The active analytics layer lives in dbt, but this script documents the earlier
 pattern: read SQL files, create DuckDB tables, and preview the results.
 """
