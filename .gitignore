@@ -42,3 +42,6 @@ data/daily_orders/
 requirements.lock.txt
 sql copy/
 .env
+
+# dbt local user settings
+ecommerce_project/.user.yml

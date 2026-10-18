@@ -7,6 +7,7 @@
 ![Warehouse](https://img.shields.io/badge/Warehouse-DuckDB-yellow)
 ![API](https://img.shields.io/badge/API-FastAPI-green)
 ![AI](https://img.shields.io/badge/LLM-Gemini%20gemini--2.5--flash--lite-black)
+[![CI](https://github.com/hugomoc/data-engineering-demo/actions/workflows/ci.yml/badge.svg)](https://github.com/hugomoc/data-engineering-demo/actions/workflows/ci.yml)
 
 ---
 
@@ -199,6 +200,29 @@ pytest -q
 ```
 
 The UI uses `API_URL` when set, otherwise `http://127.0.0.1:8000`.
+
+## Data quality
+
+- dbt reconciliation checks both directions: every staged order must reach
+  `fct_sales`, and every fact order must exist in the staged source. These tests
+  catch missing orders and orphan facts that uniqueness and not-null tests miss.
+- The Python source gate raises `DataQualityError` for null order IDs, duplicate
+  order IDs, or an empty `incremental_orders` table. The Prefect validation task
+  fails before dbt runs. Set `DEMO_DB_PATH` to check a separate database.
+- The incremental regression builds 30 UUID orders, adds 30 later-timestamped
+  orders, and verifies all 60 survive. It then deletes five disposable fact rows
+  and requires the missing-order reconciliation test to fail with five results.
+- CI runs offline pytest checks and `dbt build` against 300 deterministic orders
+  spanning three months. Tests use their own temporary databases; the CI fixture
+  uses `/tmp/ded-ci.duckdb` and refuses to overwrite an existing file. Python test
+  and dbt processes block network access and do not need Gemini credentials.
+
+### Bug found and fixed
+
+the incremental fct_sales filter compared string order_ids with >, so in my dev database 2,243 of 2,307 orders (97.2%) never reached the fact table; filtering on the load timestamp fixed it; after a full refresh the source and fact counts match (2,307 = 2,307, 0 missing)
+
+These figures describe the recorded development repair; CI verification uses
+synthetic temporary data and does not open the development database.
 
 ## Design principles
 
