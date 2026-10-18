@@ -5,16 +5,21 @@ the source: missing identifiers, duplicate orders, row counts, and recency.
 """
 
 import duckdb
+import os
 
 from logger_config import logger
 
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DB_PATH = BASE_DIR / "ecommerce_project" / "dev.duckdb"
+DB_PATH = Path(os.environ.get("DEMO_DB_PATH", BASE_DIR / "ecommerce_project" / "dev.duckdb"))
+
+
+class DataQualityError(RuntimeError):
+    """Source orders failed a required ingestion quality gate."""
 
 def main():
-    """Inspect incremental_orders and log source data quality signals."""
+    """Log source quality signals and fail when order integrity is broken."""
 
     con = None
     
@@ -66,6 +71,16 @@ def main():
         logger.info(f"Latest order date: {latest_order}")    
         
         logger.info("Quality checks complete")
+
+        failures = []
+        if nulls > 0:
+            failures.append(f"Null order IDs: {nulls}")
+        if not dupes.empty:
+            failures.append(f"Duplicate order IDs: {len(dupes)}")
+        if total_rows == 0:
+            failures.append("incremental_orders is empty")
+        if failures:
+            raise DataQualityError("; ".join(failures))
     
     finally:
         if con:
