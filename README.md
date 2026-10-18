@@ -6,7 +6,7 @@
 ![Transformations](https://img.shields.io/badge/Transformations-dbt-orange)
 ![Warehouse](https://img.shields.io/badge/Warehouse-DuckDB-yellow)
 ![API](https://img.shields.io/badge/API-FastAPI-green)
-![AI](https://img.shields.io/badge/LLM-GPT--4o--mini-black)
+![AI](https://img.shields.io/badge/LLM-Gemini%20gemini--2.5--flash--lite-black)
 
 ---
 
@@ -165,20 +165,40 @@ Output:
 * DuckDB
 * dbt-core
 * Prefect
-* Gemini / GPT-style LLMs
+* Gemini (`gemini-2.5-flash-lite`)
 * SQL (core analytics logic)
 
 ---
 
 ## How to run
 
+After pulling this change, run `dbt run --full-refresh -s fct_sales+` once from
+`ecommerce_project/` to rebuild existing facts with the `created_at` watermark.
+
+```sh
+python -m venv venv312
+source venv312/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
+# Set GEMINI_API_KEY in .env before asking the agent a question.
+```
 
+The checked-in `ecommerce_project/profiles.yml` defaults to the DuckDB `dev`
+target. Run dbt from `ecommerce_project/` with that profile directory; its default
+database is `ecommerce_project/dev.duckdb`. Set `DUCKDB_PATH` to an absolute path
+to build against another database. The `prod` target uses `prod.duckdb`.
+
+```sh
 python pipeline/prefect_flow.py
-
-cd ecommerce_project && dbt run && dbt test
-
+(cd ecommerce_project && DBT_PROFILES_DIR=. dbt build)
 uvicorn api.main:app --reload
+# In a second terminal with the environment activated:
+streamlit run app.py
+# Offline regression tests (temporary data and databases):
+pytest -q
+```
+
+The UI uses `API_URL` when set, otherwise `http://127.0.0.1:8000`.
 
 ## Design principles
 

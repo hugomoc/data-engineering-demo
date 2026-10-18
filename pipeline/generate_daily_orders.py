@@ -6,7 +6,8 @@ script is useful for creating fresh order data without manually editing files.
 
 import pandas as pd
 import random
-from datetime import datetime
+import os
+from datetime import date, datetime
 from pathlib import Path
 import uuid
 
@@ -16,52 +17,67 @@ import uuid
 
 BASE_DIR = Path(__file__).resolve().parent.parent if "__file__" in globals() else Path.cwd()
 
-DATA_DIR = BASE_DIR / "data"
+DATA_DIR = Path(os.environ.get("DEMO_DATA_DIR", BASE_DIR / "data"))
 
 CUSTOMERS_PATH = DATA_DIR / "customers.csv"
 PRODUCTS_PATH = DATA_DIR / "products.csv"
 DAILY_FOLDER = DATA_DIR / "daily_orders"
 
-DAILY_FOLDER.mkdir(parents=True, exist_ok=True)
-
-valid_customers = pd.read_csv(CUSTOMERS_PATH)
-products_df = pd.read_csv(PRODUCTS_PATH)
-products = products_df["product_id"].tolist()
-
 NUM_ORDERS = 50
 
-# -----------------------------
-# Generate Orders
-# -----------------------------
 
-rows = []
+def main():
+    """Generate a new daily extract without overwriting an earlier run."""
+    DAILY_FOLDER.mkdir(parents=True, exist_ok=True)
 
-for _ in range(NUM_ORDERS):
+    valid_customers = pd.read_csv(CUSTOMERS_PATH)
+    products_df = pd.read_csv(PRODUCTS_PATH)
+    products = products_df["product_id"].tolist()
+    customer_ids = valid_customers["customer_id"].tolist()
+    today = date.today().isoformat()
+    filename = DAILY_FOLDER / f"{today}.csv"
+    suffix = 1
+    while filename.exists():
+        filename = DAILY_FOLDER / f"{today}_{suffix}.csv"
+        suffix += 1
 
-    # Each row mimics one ecommerce order event with a stable UUID primary key.
-    quantity = random.randint(1, 5)
-    price = random.randint(20, 500)
 
-    order = {
-        "order_id": str(uuid.uuid4()),
-        "customer_id": random.choice(customer_ids),
-        "product_id": random.choice(products),
-        "quantity": quantity,
-        "unit_price": price,
-        "amount": quantity * price,
-        "order_date": today,
-        "created_at": datetime.now().isoformat()
-    }
+    # -----------------------------
+    # Generate Orders
+    # -----------------------------
 
-    rows.append(order)
+    rows = []
 
-# -----------------------------
-# Save CSV
-# -----------------------------
+    for _ in range(NUM_ORDERS):
 
-df = pd.DataFrame(rows)
+        # Each row mimics one ecommerce order event with a stable UUID primary key.
+        quantity = random.randint(1, 5)
+        price = random.randint(20, 500)
 
-df.to_csv(filename, index=False)
+        order = {
+            "order_id": str(uuid.uuid4()),
+            "customer_id": random.choice(customer_ids),
+            "product_id": random.choice(products),
+            "quantity": quantity,
+            "unit_price": price,
+            "amount": quantity * price,
+            "order_date": today,
+            "created_at": datetime.now().isoformat()
+        }
 
-print(f"Generated {len(df)} orders")
-print(f"Saved to: {filename}")
+        rows.append(order)
+
+    # -----------------------------
+    # Save CSV
+    # -----------------------------
+
+    df = pd.DataFrame(rows)
+
+    df.to_csv(filename, index=False)
+
+    print(f"Generated {len(df)} orders")
+    print(f"Saved to: {filename}")
+
+
+if __name__ == "__main__":
+    main()

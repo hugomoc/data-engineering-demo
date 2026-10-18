@@ -7,7 +7,9 @@ stay behind the API so the presentation layer remains easy to reason about.
 
 import streamlit as st
 import requests
-import pandas as pd
+import os
+
+API_URL = os.environ.get("API_URL", "http://127.0.0.1:8000")
 
 st.title("AI Data Analytics Demo")
 
@@ -18,21 +20,21 @@ question = st.text_input(
 
 if question:
 
-    url = f"http://127.0.0.1:8000/ask?question={question}"
-
-    # The API owns the agent workflow; Streamlit only passes the question and
-    # displays the response returned by FastAPI.
-    response = requests.get(url)
-
-    data = response.json()
-
-    if "results" in data:
-
-        st.subheader("Results")
-
-        df = pd.DataFrame(data["results"])
-
-        st.dataframe(df)
-
-    else:
-        st.error(data["error"])
+    try:
+        response = requests.get(
+            f"{API_URL}/ask", params={"question": question}, timeout=60
+        )
+        if response.status_code != 200:
+            st.error(f"The analytics API returned HTTP {response.status_code}.")
+        else:
+            data = response.json()
+            if data.get("error"):
+                st.error(data["error"])
+            elif "answer" in data:
+                st.markdown(data["answer"])
+            else:
+                st.error("The analytics API returned an unexpected response.")
+    except requests.RequestException:
+        st.error("Could not connect to the analytics API. Please try again.")
+    except ValueError:
+        st.error("The analytics API returned an invalid response.")

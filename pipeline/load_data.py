@@ -1,5 +1,7 @@
 """One-time CSV bootstrap loader for the simple local DuckDB database.
 
+LEGACY: retained for reference; use incremental_load.py for the active pipeline.
+
 This script predates the dbt-oriented incremental flow and loads the three
 base CSV files directly into data.db for quick local experimentation.
 """
