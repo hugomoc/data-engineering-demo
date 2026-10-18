@@ -55,20 +55,13 @@ def transform():
     )
 
     env = os.environ.copy()
+    env["DBT_PROFILES_DIR"] = str(project_dir)
     # Keep dbt single-threaded to avoid concurrent DuckDB writer conflicts.
     env["DBT_THREADS"] = "1"
 
-    # Build dbt models from staging through marts.
+    # Build models and test them in dependency order.
     subprocess.run(
-        ["dbt", "run"],
-        cwd=project_dir,
-        check=True,
-        env=env
-    )
-
-    # Run dbt tests after the build so data quality failures are visible.
-    subprocess.run(
-        ["dbt", "test"],
+        ["dbt", "build"],
         cwd=project_dir,
         check=True,
         env=env
