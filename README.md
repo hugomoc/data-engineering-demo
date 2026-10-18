@@ -172,6 +172,9 @@ Output:
 
 ## How to run
 
+After pulling this change, run `dbt run --full-refresh -s fct_sales+` once from
+`ecommerce_project/` to rebuild existing facts with the `created_at` watermark.
+
 pip install -r requirements.txt
 
 python pipeline/prefect_flow.py

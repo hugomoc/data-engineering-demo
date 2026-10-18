@@ -7,5 +7,6 @@ select
     unit_price,
     quantity,
     amount,
-    order_date
+    order_date,
+    created_at
 from {{ source('ecommerce', 'incremental_orders') }}

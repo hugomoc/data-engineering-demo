@@ -17,6 +17,9 @@ models:
       - name: order_date
         description: Date the order was placed
 
+      - name: created_at
+        description: Source creation timestamp used as the incremental high-water mark
+
       - name: customer_id
         description: Foreign key to customers
 
