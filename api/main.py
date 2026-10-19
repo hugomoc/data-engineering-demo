@@ -44,7 +44,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 app = FastAPI()
 
-DB_PATH = BASE_DIR / "ecommerce_project" / "dev.duckdb"
+DB_PATH = Path(os.environ.get("DEMO_DB_PATH", BASE_DIR / "ecommerce_project" / "dev.duckdb"))
 
 chat_history = defaultdict(list)
 
@@ -78,7 +78,7 @@ def run_query(table_name: str):
     }:
         raise ValueError(f"Invalid table: {table_name}")
 
-    con = duckdb.connect(str(DB_PATH))
+    con = duckdb.connect(str(DB_PATH), read_only=True)
 
     result = con.execute(f"""
         SELECT *
