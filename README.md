@@ -232,6 +232,11 @@ covers planner parsing and numeric correctness against independent fixture SQL.
 Live planner accuracy is measured manually; results live in
 `eval/results/latest.md`.
 
+Report destinations are mode-specific: live runs write `eval/results/latest.md`;
+offline runs write the ignored local scratch file `eval/results/latest_offline.md`
+and preserve the committed live results. `--output PATH` explicitly overrides
+either destination and permits a path outside `eval/results`.
+
 First live run: model **gemini-3.5-flash-lite**; **30 of 30 questions answered**;
 **0 failed calls**.
 

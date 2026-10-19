@@ -48,3 +48,6 @@ ecommerce_project/.user.yml
 
 # Private live evaluation progress
 eval/results/live_progress.jsonl
+
+# Local offline evaluation output
+eval/results/latest_offline.md

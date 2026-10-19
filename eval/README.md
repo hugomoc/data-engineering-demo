@@ -114,6 +114,15 @@ the tolerance. These results do not replace human answer review.
 
 ## Results
 
+Output-path update: live runs default to `eval/results/latest.md`. Offline runs
+instead write `eval/results/latest_offline.md`, an ignored local scratch output,
+and leave the committed live report unchanged. The existing offline baseline is
+retained in README text and git history. Pass `--output PATH` to override either
+mode's destination; an explicit path may be outside `eval/results`. Implicit
+destinations that resolve outside that folder are refused, including symlinks.
+The earlier overwrite description below applies to the live default; it no
+longer applies to offline runs.
+
 Every successful or quota-stopped run overwrites `eval/results/latest.md` with
 aggregate metrics and an ID/expected/got/pass-fail table. Save a copy before
 comparing runs. Synthetic results may be committed; databases, logs and keys
