@@ -224,6 +224,24 @@ the incremental fct_sales filter compared string order_ids with >, so in my dev 
 These figures describe the recorded development repair; CI verification uses
 synthetic temporary data and does not open the development database.
 
+## Agent evaluation
+
+The draft evaluation sheet contains **30 questions**, five each for product,
+segment, monthly-revenue, anomaly, multi-tool, and out-of-scope cases. Offline CI
+covers planner parsing and numeric correctness against independent fixture SQL.
+Live planner accuracy is measured manually; results live in
+`eval/results/latest.md`, marked **pending first live run** for now.
+
+```sh
+venv312/bin/python -m eval.run_agent_eval --offline
+```
+
+A manual live run costs **about 30 Gemini planner calls (30 more with --with-answers)**.
+See `eval/README.md` for live commands, label review, metric definitions, quota
+handling, and the limitations of the numerical answer-faithfulness heuristic.
+The three-tool cap was added after the evaluation work found that the prompt
+and parser disagreed.
+
 ## Design principles
 
 This project follows modern data engineering principles including separation of ingestion, transformation, and serving layers, modular SQL modeling with dbt, lightweight analytics storage using DuckDB, and AI-assisted analytics for business interpretation. It is designed to be extensible, reproducible, and representative of production-style ELT architectures.
