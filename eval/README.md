@@ -39,6 +39,15 @@ completed evaluation. No live run has been performed for the initial report.
 
 ## What is measured
 
+Raw status is `declined` when parsing found no valid tool, `picked` when valid
+tools were named (with their count before the cap), or `no_text` when reading
+the response text raised. “Got” is the final tools after the app's fallback and
+cap; `no_text` is counted separately and is not a failed API call. Failed API
+calls have no raw observation (`raw_status: null`). Only enum names and text-error
+class names accompany tool observations, never prompt/response text. Archive old
+progress files outside the repo before starting a new run: without raw statuses,
+their empty tool lists cannot distinguish a decline from unreadable text.
+
 ### Resuming an authorized live evaluation
 
 Free-tier quotas can stop a run partway. For a manually authorized evaluation

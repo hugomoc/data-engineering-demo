@@ -3,7 +3,6 @@
 import argparse
 from collections import Counter
 from contextlib import redirect_stdout
-import io
 import json
 import os
 import re
@@ -85,15 +84,53 @@ class ModelCallError(Exception):
         super().__init__(f'{exception_class}: {message}')
 
 
+def enum_name(value):
+    """Keep enum names only; never stringify arbitrary provider metadata."""
+    name = getattr(value, 'name', None)
+    return name if isinstance(name, str) and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', name) else None
+
+
+class ResponseProbe:
+    """Delegate the response unchanged while recording safe text-access metadata."""
+    def __init__(self, response, observation):
+        self._response = response
+        self._observation = observation
+        try:
+            block = enum_name(getattr(getattr(response, 'prompt_feedback', None), 'block_reason', None))
+            candidates = getattr(response, 'candidates', None)
+            finish = enum_name(getattr(candidates[0], 'finish_reason', None)) if candidates else None
+            for key, value in (('block_reason', block), ('finish_reason', finish)):
+                if value:
+                    observation[key] = value
+        except Exception:
+            # Optional diagnostics must not change the app's response handling.
+            pass
+
+    @property
+    def text(self):
+        try:
+            return self._response.text
+        except Exception as error:
+            self._observation['text_error'] = type(error).__name__
+            raise
+
+    def __getattr__(self, name):
+        return getattr(self._response, name)
+
+
 class ModelProbe:
     """Capture provider exceptions that the application catches as fallbacks."""
     def __init__(self, client):
         self.client = client
         self.error = None
+        self.responses = []
 
     def generate_content(self, *args, **kwargs):
         try:
-            return self.client.generate_content(*args, **kwargs)
+            response = self.client.generate_content(*args, **kwargs)
+            observation = {}
+            self.responses.append(observation)
+            return ResponseProbe(response, observation)
         except Exception as error:
             self.error = ModelCallError(classify_error(error), type(error).__name__,
                                         masked_message(error))
@@ -110,12 +147,18 @@ def live_question(api, question, client, with_answers, observations):
         observation['raw_tools'] = original_parse(text, max_tools=None)
         return original_parse(text, max_tools=max_tools)
 
-    with patch.object(api, 'get_model', return_value=probe), patch.object(
-            api, 'parse_planned_tools', side_effect=observed_parse), redirect_stdout(io.StringIO()):
+    with open(os.devnull, 'w') as sink, patch.object(api, 'get_model', return_value=probe), patch.object(
+            api, 'parse_planned_tools', side_effect=observed_parse), redirect_stdout(sink):
         state = api.planner_node(api.AgentState(question['question']))
         if probe.error:
             raise probe.error from None
         raw = observation['raw_tools']
+        metadata = probe.responses[0] if probe.responses else {}
+        if raw is None and 'text_error' not in metadata:
+            raise ModelCallError('other', 'UnobservedParseError', 'Response was not parsed')
+        raw_status = 'no_text' if raw is None else ('picked' if raw else 'declined')
+        observation.update(metadata, raw_status=raw_status,
+                           valid_tool_count=len(raw) if raw is not None else None)
         observation.update(cap_applied=raw is not None and len(raw) > 3,
             monthly_fallback=(not raw and state.selected_tools == ['monthly_revenue']),
             planner_error=None, outcome='ok', failed_calls=0)
@@ -129,31 +172,55 @@ def live_question(api, question, client, with_answers, observations):
                     raise probe.error from None
             faithful = numbers_are_grounded(state.final_answer, state.raw_data, state.computed_data)
     return dict(question, got=state.selected_tools, faithful=faithful,
-                answer_requested=with_answers)
+                answer_requested=with_answers, **{key: observation[key] for key in (
+                    'raw_tools', 'raw_status', 'valid_tool_count', 'text_error', 'block_reason', 'finish_reason'
+                ) if key in observation})
 
 
 def read_progress(path, questions, api):
-    """Read only validated tool outcomes; labels always come from the current sheet."""
+    """Validate the raw-status schema; old empty tools cannot reveal lost text errors."""
     latest = {}
     if not Path(path).exists():
         return latest
     ids = {q['id'] for q in questions}
+    required = {'id', 'outcome', 'tools', 'raw_status', 'valid_tool_count'}
+    optional = {'text_error', 'block_reason', 'finish_reason'}
     for line in Path(path).read_text().splitlines():
         entry = json.loads(line)
-        if (set(entry) != {'id', 'outcome', 'tools'} or entry['id'] not in ids
+        if not isinstance(entry, dict) or not required <= entry.keys():
+            raise ValueError('Progress lacks raw observations; archive the old file before a new run')
+        raw = entry['tools']
+        status = entry['raw_status']
+        count = entry['valid_tool_count']
+        success = entry['outcome'] == 'ok'
+        valid_tools = (isinstance(raw, list) and all(isinstance(t, str) and t in api.TOOLS for t in raw)
+                       and len(set(raw)) == len(raw))
+        valid_raw = (
+            (status == 'no_text' and raw is None and count is None and 'text_error' in entry)
+            or (status == 'declined' and valid_tools and raw == [] and type(count) is int and count == 0)
+            or (status == 'picked' and valid_tools and bool(raw) and type(count) is int and count == len(raw))
+        ) if success else (status is None and raw == [] and count is None)
+        if (not set(entry) <= required | optional or entry['id'] not in ids
                 or entry['outcome'] not in ('ok', 'quota', 'auth', 'model_error', 'other')
-                or not isinstance(entry['tools'], list)
-                or any(tool not in api.TOOLS for tool in entry['tools'])
-                or len(set(entry['tools'])) != len(entry['tools'])):
-            raise ValueError('Invalid live progress entry; start a new progress file')
+                or not valid_raw
+                or any(not isinstance(entry[k], str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', entry[k])
+                       for k in optional if k in entry)
+                or ('text_error' in entry and status != 'no_text')):
+            raise ValueError('Invalid live progress entry; archive the file before a new run')
         latest[entry['id']] = entry
     return latest
 
 
-def append_progress(path, question_id, outcome, tools):
-    """Persist only IDs, classified outcomes and allowlisted tools, never errors."""
+def append_progress(path, question_id, observation):
+    """Only persist allowlisted tools, raw status/count and safe metadata names."""
+    entry = dict(id=question_id, outcome=observation['outcome'],
+                 tools=observation.get('raw_tools', []), raw_status=observation.get('raw_status'),
+                 valid_tool_count=observation.get('valid_tool_count'))
+    for key in ('text_error', 'block_reason', 'finish_reason'):
+        if key in observation:
+            entry[key] = observation[key]
     with Path(path).open('a') as stream:
-        stream.write(json.dumps(dict(id=question_id, outcome=outcome, tools=tools)) + '\n')
+        stream.write(json.dumps(entry) + '\n')
 
 
 def run_questions(api, questions, *, client=None, with_answers=False, delay=2, sleep=time.sleep,
@@ -169,11 +236,17 @@ def run_questions(api, questions, *, client=None, with_answers=False, delay=2, s
         saved = completed.get(question['id'])
         if client is not None and saved and saved['outcome'] == 'ok':
             raw = saved['tools']
-            selected = raw[:3] or api.keyword_fallback(question['question'])
-            rows.append(dict(question, got=selected, faithful=None, answer_requested=False))
+            selected = (['monthly_revenue'] if saved['raw_status'] == 'no_text'
+                        else raw[:3] or api.keyword_fallback(question['question']))
+            raw_fields = {key: saved[key] for key in (
+                'raw_status', 'valid_tool_count', 'text_error', 'block_reason', 'finish_reason'
+            ) if key in saved}
+            rows.append(dict(question, got=selected, faithful=None, answer_requested=False,
+                             raw_tools=raw, **raw_fields))
             observations.append(dict(id=question['id'], category=question['category'],
-                raw_tools=raw, cap_applied=len(raw) > 3, monthly_fallback=not raw and selected == ['monthly_revenue'],
-                planner_error=None, outcome='ok', failed_calls=0))
+                raw_tools=raw, cap_applied=raw is not None and len(raw) > 3,
+                monthly_fallback=not raw and selected == ['monthly_revenue'],
+                planner_error=None, outcome='ok', failed_calls=0, **raw_fields))
     calls_started = False
     for question in questions:
         if client is not None and completed.get(question['id'], {}).get('outcome') == 'ok':
@@ -194,7 +267,7 @@ def run_questions(api, questions, *, client=None, with_answers=False, delay=2, s
             except ModelCallError as error:
                 del observations[before:]
                 observations.append(dict(id=question['id'], category=question['category'],
-                    outcome=error.outcome, failed_calls=1, raw_tools=None,
+                    outcome=error.outcome, failed_calls=1,
                     cap_applied=False, monthly_fallback=False, planner_error=str(error)))
                 print(f'{question["id"]}: {error.outcome}: {error}')
                 if error.outcome in ('quota', 'auth', 'model_error'):
@@ -204,7 +277,7 @@ def run_questions(api, questions, *, client=None, with_answers=False, delay=2, s
                     sleep(delay)
         if progress_path:
             result = observations[-1]
-            append_progress(progress_path, question['id'], result['outcome'], result['raw_tools'] or [])
+            append_progress(progress_path, question['id'], result)
         if stopped:
             break
     return rows, observations, stopped
@@ -241,6 +314,7 @@ def render_report(questions, rows, observations, mode, stopped, with_answers, mo
         if mode == 'offline' else
         ('Exact-match tool-selection accuracy', 'Mean per-question precision', 'Mean per-question recall')
     )
+    metric_labels = tuple(label + ' (final tools after app fallback and cap)' for label in metric_labels)
     lines += ['| Metric | Result |', '| --- | --- |']
     if mode == 'live' and n == 0:
         lines += ['| Planner evaluation | no valid planner responses |']
@@ -249,10 +323,21 @@ def render_report(questions, rows, observations, mode, stopped, with_answers, mo
             f"| {metric_labels[0]} | {format_rate(sum(s['exact'] for s in scores), n)} |",
             f"| {metric_labels[1]} | {format_rate(sum(s['precision'] for s in scores), n)} |",
             f"| {metric_labels[2]} | {format_rate(sum(s['recall'] for s in scores), n)} |"]
-    observed_oos = [o for o in successful if o['category'] == 'out_of_scope' and o['raw_tools'] is not None]
-    lines += [f"| Model selected no valid tool on out-of-scope input, before fallback | {format_rate(sum(not o['raw_tools'] for o in observed_oos), len(observed_oos))} |",
-        f"| Silent monthly_revenue fallback | {format_rate(sum(o['monthly_fallback'] for o in successful), len(successful))} |",
-        f"| Three-tool cap applied | {format_rate(sum(o['cap_applied'] for o in successful), len(successful))} |"]
+    observed_oos = [o for o in successful if o['category'] == 'out_of_scope']
+    for status, label in (('declined', 'model declined'), ('picked', 'model picked tools'),
+                          ('no_text', 'no usable response')):
+        count = sum(o['raw_status'] == status for o in observed_oos)
+        result = f'{count} of {len(observed_oos)}' if mode == 'live' else 'not measured (offline)'
+        lines.append(f'| Out-of-scope: {label} | {result} |')
+    for status, label in (
+        ('declined', 'Final tools came from keyword fallback after the model declined'),
+        ('no_text', 'Final tools came from keyword fallback after no usable response'),
+        ('no_text', 'Questions with no usable model text'),
+    ):
+        count = sum(o['raw_status'] == status for o in successful)
+        result = f'{count} of {n}' if mode == 'live' else 'not measured (offline)'
+        lines.append(f'| {label} | {result} |')
+    lines += [f"| Three-tool cap applied | {format_rate(sum(o['cap_applied'] for o in successful), len(successful))} |"]
     if observations:
         lines += [f"| Questions with cap applied (count) | {sum(o['cap_applied'] for o in successful)} of {len(successful)} |",
                   f"| Planner errors (count) | {failed_calls} |"]
@@ -268,13 +353,14 @@ def render_report(questions, rows, observations, mode, stopped, with_answers, mo
                   f"| Answers without $/% figures (excluded, count) | {n - len(assessed)} |"]
     lines += ['', 'Macro precision/recall bounds use fractional effective successes and are descriptive Wilson-style bounds, not binomial confidence guarantees.',
         'Tool order is ignored for accuracy; empty/empty scores 1, and an empty/nonempty mismatch scores 0.', '',
-        '| Category | Correct | Completed |', '| --- | --- | --- |']
+        '| Category | Correct (final tools after app fallback and cap) | Completed |', '| --- | --- | --- |']
     for category in CATEGORIES:
         selected = [r for r in rows if r['category'] == category]
         correct = sum(selection_scores(r['expected_tools'], r['got'])['exact'] for r in selected)
         denominator = len(selected) if mode == 'live' else 5
         lines.append(f'| {category} | {correct} of {denominator} | {len(selected)} |')
-    lines += ['', '| ID | Expected | Got | Pass/fail |', '| --- | --- | --- | --- |']
+    lines += ['', '| ID | Expected | Model raw | Got (final) | Response metadata | Pass/fail |',
+              '| --- | --- | --- | --- | --- | --- |']
     completed = {row['id']: row for row in rows}
     for question in questions:
         row = completed.get(question['id'])
@@ -282,7 +368,18 @@ def render_report(questions, rows, observations, mode, stopped, with_answers, mo
         failed = question['id'] in attempted and not row
         got = (', '.join(row['got']) or '[]') if row else ('call failed' if failed else 'not completed')
         outcome = ('PASS' if selection_scores(question['expected_tools'], row['got'])['exact'] else 'FAIL') if row else ('CALL FAILED' if failed else 'NOT RUN')
-        lines.append(f"| {question['id']} | {expected} | {got} | {outcome} |")
+        if mode == 'offline':
+            raw_display = 'not measured (offline)'
+        elif not row:
+            raw_display = 'call failed' if failed else 'not run'
+        elif row['raw_status'] == 'no_text':
+            raw_display = 'no text'
+        else:
+            raw_display = ', '.join(row['raw_tools']) or '[]'
+        metadata = '; '.join(f'{key}={row[key]}' for key in (
+            'valid_tool_count', 'text_error', 'block_reason', 'finish_reason'
+        ) if row and key in row and row[key] is not None) or 'none'
+        lines.append(f"| {question['id']} | {expected} | {raw_display} | {got} | {metadata} | {outcome} |")
     return '\n'.join(lines) + '\n'
 
 
