@@ -175,9 +175,14 @@ def format_rate(successes, n):
 def render_report(questions, rows, observations, mode, stopped, with_answers, model_name=None):
     scores = [selection_scores(row['expected_tools'], row['got']) for row in rows]
     n = len(rows)
+    successful = [o for o in observations if o.get('outcome', 'ok') == 'ok']
+    failed_calls = sum(o.get('failed_calls', 0) for o in observations)
+    attempted = {o['id'] for o in observations} | {r['id'] for r in rows}
     lines = ['# Agent evaluation', '', f'Mode: **{mode}**; {n} of {len(questions)} questions completed.',
         f'Model: {model_name}' if mode == 'live' else 'Model: none (keyword_fallback only)',
         'Labels are a DRAFT that a human must review.', '']
+    if mode == 'live' and n < len(questions):
+        lines.insert(2, f'**PARTIAL: {n} of {len(questions)} questions evaluated**')
     if mode == 'offline':
         lines += ['**Live planner accuracy: pending first live run.**',
                   'This run evaluates only keyword_fallback; no planner or analyst was called.', '']
@@ -190,17 +195,24 @@ def render_report(questions, rows, observations, mode, stopped, with_answers, mo
         if mode == 'offline' else
         ('Exact-match tool-selection accuracy', 'Mean per-question precision', 'Mean per-question recall')
     )
-    lines += ['| Metric | Result |', '| --- | --- |',
-        f"| {metric_labels[0]} | {format_rate(sum(s['exact'] for s in scores), n)} |",
-        f"| {metric_labels[1]} | {format_rate(sum(s['precision'] for s in scores), n)} |",
-        f"| {metric_labels[2]} | {format_rate(sum(s['recall'] for s in scores), n)} |"]
-    observed_oos = [o for o in observations if o['category'] == 'out_of_scope' and o['raw_tools'] is not None]
+    lines += ['| Metric | Result |', '| --- | --- |']
+    if mode == 'live' and n == 0:
+        lines += ['| Planner evaluation | no valid planner responses |']
+    else:
+        lines += [
+            f"| {metric_labels[0]} | {format_rate(sum(s['exact'] for s in scores), n)} |",
+            f"| {metric_labels[1]} | {format_rate(sum(s['precision'] for s in scores), n)} |",
+            f"| {metric_labels[2]} | {format_rate(sum(s['recall'] for s in scores), n)} |"]
+    observed_oos = [o for o in successful if o['category'] == 'out_of_scope' and o['raw_tools'] is not None]
     lines += [f"| Model selected no valid tool on out-of-scope input, before fallback | {format_rate(sum(not o['raw_tools'] for o in observed_oos), len(observed_oos))} |",
-        f"| Silent monthly_revenue fallback | {format_rate(sum(o['monthly_fallback'] for o in observations), len(observations))} |",
-        f"| Three-tool cap applied | {format_rate(sum(o['cap_applied'] for o in observations), len(observations))} |"]
+        f"| Silent monthly_revenue fallback | {format_rate(sum(o['monthly_fallback'] for o in successful), len(successful))} |",
+        f"| Three-tool cap applied | {format_rate(sum(o['cap_applied'] for o in successful), len(successful))} |"]
     if observations:
-        lines += [f"| Questions with cap applied (count) | {sum(o['cap_applied'] for o in observations)} of {len(observations)} |",
-                  f"| Planner errors (count) | {sum(bool(o['planner_error']) for o in observations)} |"]
+        lines += [f"| Questions with cap applied (count) | {sum(o['cap_applied'] for o in successful)} of {len(successful)} |",
+                  f"| Planner errors (count) | {failed_calls} |"]
+    if mode == 'live':
+        lines += [f'| Failed calls (count) | {failed_calls} |',
+                  f'| Questions not run (count) | {len(questions) - len(attempted)} |']
     if mode == 'offline':
         defaults = sum(row['got'] == ['monthly_revenue'] for row in rows)
         lines += [f'| Keyword fallback returned monthly_revenue (not a model observation) | {format_rate(defaults, n)} |']
@@ -214,14 +226,16 @@ def render_report(questions, rows, observations, mode, stopped, with_answers, mo
     for category in CATEGORIES:
         selected = [r for r in rows if r['category'] == category]
         correct = sum(selection_scores(r['expected_tools'], r['got'])['exact'] for r in selected)
-        lines.append(f'| {category} | {correct} of 5 | {len(selected)} |')
+        denominator = len(selected) if mode == 'live' else 5
+        lines.append(f'| {category} | {correct} of {denominator} | {len(selected)} |')
     lines += ['', '| ID | Expected | Got | Pass/fail |', '| --- | --- | --- | --- |']
     completed = {row['id']: row for row in rows}
     for question in questions:
         row = completed.get(question['id'])
         expected = ', '.join(question['expected_tools']) or '[]'
-        got = (', '.join(row['got']) or '[]') if row else 'not completed'
-        outcome = ('PASS' if selection_scores(question['expected_tools'], row['got'])['exact'] else 'FAIL') if row else 'NOT RUN'
+        failed = question['id'] in attempted and not row
+        got = (', '.join(row['got']) or '[]') if row else ('call failed' if failed else 'not completed')
+        outcome = ('PASS' if selection_scores(question['expected_tools'], row['got'])['exact'] else 'FAIL') if row else ('CALL FAILED' if failed else 'NOT RUN')
         lines.append(f"| {question['id']} | {expected} | {got} | {outcome} |")
     return '\n'.join(lines) + '\n'
 
