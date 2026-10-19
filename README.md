@@ -6,7 +6,7 @@
 ![Transformations](https://img.shields.io/badge/Transformations-dbt-orange)
 ![Warehouse](https://img.shields.io/badge/Warehouse-DuckDB-yellow)
 ![API](https://img.shields.io/badge/API-FastAPI-green)
-![AI](https://img.shields.io/badge/LLM-Gemini%20gemini--2.5--flash--lite-black)
+![AI](https://img.shields.io/badge/LLM-Gemini%20gemini--3.5--flash--lite%20%28configurable%29-black)
 [![CI](https://github.com/hugomoc/data-engineering-demo/actions/workflows/ci.yml/badge.svg)](https://github.com/hugomoc/data-engineering-demo/actions/workflows/ci.yml)
 
 ---
@@ -166,7 +166,7 @@ Output:
 * DuckDB
 * dbt-core
 * Prefect
-* Gemini (`gemini-2.5-flash-lite`)
+* Gemini (`GEMINI_MODEL`, default `gemini-3.5-flash-lite`)
 * SQL (core analytics logic)
 
 ---

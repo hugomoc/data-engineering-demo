@@ -20,6 +20,7 @@ Temporary databases, compiled dbt output, and logs are removed afterward.
 
 Live runs are manual. Supply `GEMINI_API_KEY` in the process environment first;
 the evaluator does not load `.env` and exits non-zero when the key is absent.
+Set `GEMINI_MODEL` to override the default `gemini-3.5-flash-lite` model.
 Run outside pytest and its offline guard, which intentionally removes keys and
 blocks sockets. These commands are for an explicit, user-initiated live run:
 
