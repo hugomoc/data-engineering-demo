@@ -126,6 +126,26 @@ TOOLS = {
 ALLOWED_TOOLS = set(TOOLS.keys())
 
 
+def parse_planned_tools(text, max_tools=None) -> list:
+    """Filter and deduplicate model tool names, optionally capping their count."""
+    tools = list(dict.fromkeys([
+        name.strip() for name in text.split(",") if name.strip() in TOOLS
+    ]))
+    return tools if max_tools is None else tools[:max_tools]
+
+
+def keyword_fallback(question) -> list:
+    """Keep the existing ordered keyword routing for empty planner responses."""
+    question = question.lower()
+    if "segment" in question:
+        return ["revenue_by_segment"]
+    elif "product" in question:
+        return ["top_products"]
+    elif "anomal" in question:
+        return ["anomalies_sales"]
+    return ["monthly_revenue"]
+
+
 def planner_node(state: AgentState):
     """Select the predefined analytics tools needed for the user's question.
 
@@ -169,11 +189,7 @@ def planner_node(state: AgentState):
             generation_config={"temperature": 0}
         )
 
-        state.selected_tools = list(dict.fromkeys([
-            t.strip()
-            for t in response.text.split(",")
-            if t.strip() in TOOLS
-        ]))
+        state.selected_tools = parse_planned_tools(response.text)
         
 
     except Exception as e:
@@ -182,19 +198,7 @@ def planner_node(state: AgentState):
         state.selected_tools = ["monthly_revenue"]
 
     if not state.selected_tools:
-        q = state.question.lower()
-
-        if "segment" in q:
-            state.selected_tools = ["revenue_by_segment"]
-
-        elif "product" in q:
-            state.selected_tools = ["top_products"]
-
-        elif "anomal" in q:
-            state.selected_tools = ["anomalies_sales"]
-
-        else:
-            state.selected_tools = ["monthly_revenue"]
+        state.selected_tools = keyword_fallback(state.question)
 
     return state
     
