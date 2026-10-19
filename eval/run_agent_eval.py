@@ -314,6 +314,7 @@ def render_report(questions, rows, observations, mode, stopped, with_answers, mo
         if mode == 'offline' else
         ('Exact-match tool-selection accuracy', 'Mean per-question precision', 'Mean per-question recall')
     )
+    metric_labels = tuple(label + ' (final tools after app fallback and cap)' for label in metric_labels)
     lines += ['| Metric | Result |', '| --- | --- |']
     if mode == 'live' and n == 0:
         lines += ['| Planner evaluation | no valid planner responses |']
@@ -322,10 +323,21 @@ def render_report(questions, rows, observations, mode, stopped, with_answers, mo
             f"| {metric_labels[0]} | {format_rate(sum(s['exact'] for s in scores), n)} |",
             f"| {metric_labels[1]} | {format_rate(sum(s['precision'] for s in scores), n)} |",
             f"| {metric_labels[2]} | {format_rate(sum(s['recall'] for s in scores), n)} |"]
-    observed_oos = [o for o in successful if o['category'] == 'out_of_scope' and o['raw_tools'] is not None]
-    lines += [f"| Model selected no valid tool on out-of-scope input, before fallback | {format_rate(sum(not o['raw_tools'] for o in observed_oos), len(observed_oos))} |",
-        f"| Silent monthly_revenue fallback | {format_rate(sum(o['monthly_fallback'] for o in successful), len(successful))} |",
-        f"| Three-tool cap applied | {format_rate(sum(o['cap_applied'] for o in successful), len(successful))} |"]
+    observed_oos = [o for o in successful if o['category'] == 'out_of_scope']
+    for status, label in (('declined', 'model declined'), ('picked', 'model picked tools'),
+                          ('no_text', 'no usable response')):
+        count = sum(o['raw_status'] == status for o in observed_oos)
+        result = f'{count} of {len(observed_oos)}' if mode == 'live' else 'not measured (offline)'
+        lines.append(f'| Out-of-scope: {label} | {result} |')
+    for status, label in (
+        ('declined', 'Final tools came from keyword fallback after the model declined'),
+        ('no_text', 'Final tools came from keyword fallback after no usable response'),
+        ('no_text', 'Questions with no usable model text'),
+    ):
+        count = sum(o['raw_status'] == status for o in successful)
+        result = f'{count} of {n}' if mode == 'live' else 'not measured (offline)'
+        lines.append(f'| {label} | {result} |')
+    lines += [f"| Three-tool cap applied | {format_rate(sum(o['cap_applied'] for o in successful), len(successful))} |"]
     if observations:
         lines += [f"| Questions with cap applied (count) | {sum(o['cap_applied'] for o in successful)} of {len(successful)} |",
                   f"| Planner errors (count) | {failed_calls} |"]
@@ -341,13 +353,14 @@ def render_report(questions, rows, observations, mode, stopped, with_answers, mo
                   f"| Answers without $/% figures (excluded, count) | {n - len(assessed)} |"]
     lines += ['', 'Macro precision/recall bounds use fractional effective successes and are descriptive Wilson-style bounds, not binomial confidence guarantees.',
         'Tool order is ignored for accuracy; empty/empty scores 1, and an empty/nonempty mismatch scores 0.', '',
-        '| Category | Correct | Completed |', '| --- | --- | --- |']
+        '| Category | Correct (final tools after app fallback and cap) | Completed |', '| --- | --- | --- |']
     for category in CATEGORIES:
         selected = [r for r in rows if r['category'] == category]
         correct = sum(selection_scores(r['expected_tools'], r['got'])['exact'] for r in selected)
         denominator = len(selected) if mode == 'live' else 5
         lines.append(f'| {category} | {correct} of {denominator} | {len(selected)} |')
-    lines += ['', '| ID | Expected | Got | Pass/fail |', '| --- | --- | --- | --- |']
+    lines += ['', '| ID | Expected | Model raw | Got (final) | Response metadata | Pass/fail |',
+              '| --- | --- | --- | --- | --- | --- |']
     completed = {row['id']: row for row in rows}
     for question in questions:
         row = completed.get(question['id'])
@@ -355,7 +368,18 @@ def render_report(questions, rows, observations, mode, stopped, with_answers, mo
         failed = question['id'] in attempted and not row
         got = (', '.join(row['got']) or '[]') if row else ('call failed' if failed else 'not completed')
         outcome = ('PASS' if selection_scores(question['expected_tools'], row['got'])['exact'] else 'FAIL') if row else ('CALL FAILED' if failed else 'NOT RUN')
-        lines.append(f"| {question['id']} | {expected} | {got} | {outcome} |")
+        if mode == 'offline':
+            raw_display = 'not measured (offline)'
+        elif not row:
+            raw_display = 'call failed' if failed else 'not run'
+        elif row['raw_status'] == 'no_text':
+            raw_display = 'no text'
+        else:
+            raw_display = ', '.join(row['raw_tools']) or '[]'
+        metadata = '; '.join(f'{key}={row[key]}' for key in (
+            'valid_tool_count', 'text_error', 'block_reason', 'finish_reason'
+        ) if row and key in row and row[key] is not None) or 'none'
+        lines.append(f"| {question['id']} | {expected} | {raw_display} | {got} | {metadata} | {outcome} |")
     return '\n'.join(lines) + '\n'
 
 
