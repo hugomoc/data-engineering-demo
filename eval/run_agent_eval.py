@@ -153,6 +153,12 @@ def live_question(api, question, client, with_answers, observations):
         if probe.error:
             raise probe.error from None
         raw = observation['raw_tools']
+        metadata = probe.responses[0] if probe.responses else {}
+        if raw is None and 'text_error' not in metadata:
+            raise ModelCallError('other', 'UnobservedParseError', 'Response was not parsed')
+        raw_status = 'no_text' if raw is None else ('picked' if raw else 'declined')
+        observation.update(metadata, raw_status=raw_status,
+                           valid_tool_count=len(raw) if raw is not None else None)
         observation.update(cap_applied=raw is not None and len(raw) > 3,
             monthly_fallback=(not raw and state.selected_tools == ['monthly_revenue']),
             planner_error=None, outcome='ok', failed_calls=0)
@@ -166,31 +172,55 @@ def live_question(api, question, client, with_answers, observations):
                     raise probe.error from None
             faithful = numbers_are_grounded(state.final_answer, state.raw_data, state.computed_data)
     return dict(question, got=state.selected_tools, faithful=faithful,
-                answer_requested=with_answers)
+                answer_requested=with_answers, **{key: observation[key] for key in (
+                    'raw_tools', 'raw_status', 'valid_tool_count', 'text_error', 'block_reason', 'finish_reason'
+                ) if key in observation})
 
 
 def read_progress(path, questions, api):
-    """Read only validated tool outcomes; labels always come from the current sheet."""
+    """Validate the raw-status schema; old empty tools cannot reveal lost text errors."""
     latest = {}
     if not Path(path).exists():
         return latest
     ids = {q['id'] for q in questions}
+    required = {'id', 'outcome', 'tools', 'raw_status', 'valid_tool_count'}
+    optional = {'text_error', 'block_reason', 'finish_reason'}
     for line in Path(path).read_text().splitlines():
         entry = json.loads(line)
-        if (set(entry) != {'id', 'outcome', 'tools'} or entry['id'] not in ids
+        if not isinstance(entry, dict) or not required <= entry.keys():
+            raise ValueError('Progress lacks raw observations; archive the old file before a new run')
+        raw = entry['tools']
+        status = entry['raw_status']
+        count = entry['valid_tool_count']
+        success = entry['outcome'] == 'ok'
+        valid_tools = (isinstance(raw, list) and all(isinstance(t, str) and t in api.TOOLS for t in raw)
+                       and len(set(raw)) == len(raw))
+        valid_raw = (
+            (status == 'no_text' and raw is None and count is None and 'text_error' in entry)
+            or (status == 'declined' and valid_tools and raw == [] and type(count) is int and count == 0)
+            or (status == 'picked' and valid_tools and bool(raw) and type(count) is int and count == len(raw))
+        ) if success else (status is None and raw == [] and count is None)
+        if (not set(entry) <= required | optional or entry['id'] not in ids
                 or entry['outcome'] not in ('ok', 'quota', 'auth', 'model_error', 'other')
-                or not isinstance(entry['tools'], list)
-                or any(tool not in api.TOOLS for tool in entry['tools'])
-                or len(set(entry['tools'])) != len(entry['tools'])):
-            raise ValueError('Invalid live progress entry; start a new progress file')
+                or not valid_raw
+                or any(not isinstance(entry[k], str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', entry[k])
+                       for k in optional if k in entry)
+                or ('text_error' in entry and status != 'no_text')):
+            raise ValueError('Invalid live progress entry; archive the file before a new run')
         latest[entry['id']] = entry
     return latest
 
 
-def append_progress(path, question_id, outcome, tools):
-    """Persist only IDs, classified outcomes and allowlisted tools, never errors."""
+def append_progress(path, question_id, observation):
+    """Only persist allowlisted tools, raw status/count and safe metadata names."""
+    entry = dict(id=question_id, outcome=observation['outcome'],
+                 tools=observation.get('raw_tools', []), raw_status=observation.get('raw_status'),
+                 valid_tool_count=observation.get('valid_tool_count'))
+    for key in ('text_error', 'block_reason', 'finish_reason'):
+        if key in observation:
+            entry[key] = observation[key]
     with Path(path).open('a') as stream:
-        stream.write(json.dumps(dict(id=question_id, outcome=outcome, tools=tools)) + '\n')
+        stream.write(json.dumps(entry) + '\n')
 
 
 def run_questions(api, questions, *, client=None, with_answers=False, delay=2, sleep=time.sleep,
@@ -206,11 +236,17 @@ def run_questions(api, questions, *, client=None, with_answers=False, delay=2, s
         saved = completed.get(question['id'])
         if client is not None and saved and saved['outcome'] == 'ok':
             raw = saved['tools']
-            selected = raw[:3] or api.keyword_fallback(question['question'])
-            rows.append(dict(question, got=selected, faithful=None, answer_requested=False))
+            selected = (['monthly_revenue'] if saved['raw_status'] == 'no_text'
+                        else raw[:3] or api.keyword_fallback(question['question']))
+            raw_fields = {key: saved[key] for key in (
+                'raw_status', 'valid_tool_count', 'text_error', 'block_reason', 'finish_reason'
+            ) if key in saved}
+            rows.append(dict(question, got=selected, faithful=None, answer_requested=False,
+                             raw_tools=raw, **raw_fields))
             observations.append(dict(id=question['id'], category=question['category'],
-                raw_tools=raw, cap_applied=len(raw) > 3, monthly_fallback=not raw and selected == ['monthly_revenue'],
-                planner_error=None, outcome='ok', failed_calls=0))
+                raw_tools=raw, cap_applied=raw is not None and len(raw) > 3,
+                monthly_fallback=not raw and selected == ['monthly_revenue'],
+                planner_error=None, outcome='ok', failed_calls=0, **raw_fields))
     calls_started = False
     for question in questions:
         if client is not None and completed.get(question['id'], {}).get('outcome') == 'ok':
@@ -231,7 +267,7 @@ def run_questions(api, questions, *, client=None, with_answers=False, delay=2, s
             except ModelCallError as error:
                 del observations[before:]
                 observations.append(dict(id=question['id'], category=question['category'],
-                    outcome=error.outcome, failed_calls=1, raw_tools=None,
+                    outcome=error.outcome, failed_calls=1,
                     cap_applied=False, monthly_fallback=False, planner_error=str(error)))
                 print(f'{question["id"]}: {error.outcome}: {error}')
                 if error.outcome in ('quota', 'auth', 'model_error'):
@@ -241,7 +277,7 @@ def run_questions(api, questions, *, client=None, with_answers=False, delay=2, s
                     sleep(delay)
         if progress_path:
             result = observations[-1]
-            append_progress(progress_path, question['id'], result['outcome'], result['raw_tools'] or [])
+            append_progress(progress_path, question['id'], result)
         if stopped:
             break
     return rows, observations, stopped
