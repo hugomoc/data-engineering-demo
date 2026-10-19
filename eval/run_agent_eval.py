@@ -130,10 +130,17 @@ def render_report(questions, rows, observations, mode, stopped, with_answers):
                   'This run evaluates only keyword_fallback; no planner or analyst was called.', '']
     if stopped:
         lines += [f'Stopped cleanly on {stopped}; completed questions: {n}.', '']
+    metric_labels = (
+        ('keyword_fallback baseline (not the LLM): exact-match tool selection',
+         'keyword_fallback baseline (not the LLM): mean precision',
+         'keyword_fallback baseline (not the LLM): mean recall')
+        if mode == 'offline' else
+        ('Exact-match tool-selection accuracy', 'Mean per-question precision', 'Mean per-question recall')
+    )
     lines += ['| Metric | Result |', '| --- | --- |',
-        f"| Exact-match tool-selection accuracy | {format_rate(sum(s['exact'] for s in scores), n)} |",
-        f"| Mean per-question precision | {format_rate(sum(s['precision'] for s in scores), n)} |",
-        f"| Mean per-question recall | {format_rate(sum(s['recall'] for s in scores), n)} |"]
+        f"| {metric_labels[0]} | {format_rate(sum(s['exact'] for s in scores), n)} |",
+        f"| {metric_labels[1]} | {format_rate(sum(s['precision'] for s in scores), n)} |",
+        f"| {metric_labels[2]} | {format_rate(sum(s['recall'] for s in scores), n)} |"]
     observed_oos = [o for o in observations if o['category'] == 'out_of_scope' and o['raw_tools'] is not None]
     lines += [f"| Model selected no valid tool on out-of-scope input, before fallback | {format_rate(sum(not o['raw_tools'] for o in observed_oos), len(observed_oos))} |",
         f"| Silent monthly_revenue fallback | {format_rate(sum(o['monthly_fallback'] for o in observations), len(observations))} |",

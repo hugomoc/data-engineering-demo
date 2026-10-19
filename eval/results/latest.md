@@ -8,9 +8,9 @@ This run evaluates only keyword_fallback; no planner or analyst was called.
 
 | Metric | Result |
 | --- | --- |
-| Exact-match tool-selection accuracy | 53.3% (95% Wilson 36.1%–69.8%; n=30) |
-| Mean per-question precision | 70.0% (95% Wilson 52.1%–83.3%; n=30) |
-| Mean per-question recall | 61.7% (95% Wilson 43.9%–76.8%; n=30) |
+| keyword_fallback baseline (not the LLM): exact-match tool selection | 53.3% (95% Wilson 36.1%–69.8%; n=30) |
+| keyword_fallback baseline (not the LLM): mean precision | 70.0% (95% Wilson 52.1%–83.3%; n=30) |
+| keyword_fallback baseline (not the LLM): mean recall | 61.7% (95% Wilson 43.9%–76.8%; n=30) |
 | Model selected no valid tool on out-of-scope input, before fallback | not measured (n=0) |
 | Silent monthly_revenue fallback | not measured (n=0) |
 | Three-tool cap applied | not measured (n=0) |

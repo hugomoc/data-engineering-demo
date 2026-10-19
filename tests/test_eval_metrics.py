@@ -62,6 +62,8 @@ def test_question_sheet_and_offline_runner_never_call_model():
     assert 'pending first live run' in report
     assert '| top_products | 4 of 5 | 5 |' in report
     assert '| out_of_scope | 0 of 5 | 5 |' in report
+    for label in ('exact-match tool selection', 'mean precision', 'mean recall'):
+        assert f'| keyword_fallback baseline (not the LLM): {label} |' in report
 
 
 def test_mock_planner_observes_pre_fallback_empty_and_cap():
@@ -80,6 +82,9 @@ def test_mock_planner_observes_pre_fallback_empty_and_cap():
     assert rows[0]['got'] == ['monthly_revenue']
     report = render_report([question], rows, observations, 'live', None, False)
     assert '| Questions with cap applied (count) | 0 of 1 |' in report
+    for label in ('Exact-match tool-selection accuracy', 'Mean per-question precision', 'Mean per-question recall'):
+        assert f'| {label} |' in report
+    assert 'keyword_fallback baseline (not the LLM)' not in report
 
 
 def test_mock_quota_stop_and_sleep_between_calls():
