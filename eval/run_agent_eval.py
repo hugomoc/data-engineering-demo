@@ -20,6 +20,7 @@ from eval.metrics import numbers_are_grounded, selection_scores, wilson
 
 CATEGORIES = ('top_products', 'revenue_by_segment', 'monthly_revenue',
               'anomalies_sales', 'multi_tool', 'out_of_scope')
+RESULTS_DIR = ROOT / 'eval' / 'results'
 
 
 def load_questions(path):
@@ -383,11 +384,23 @@ def render_report(questions, rows, observations, mode, stopped, with_answers, mo
     return '\n'.join(lines) + '\n'
 
 
+def write_report(report, *, live=False, output=None):
+    """Keep default outputs in results; external destinations require opt-in."""
+    destination = (Path(output).expanduser() if output is not None else
+                   RESULTS_DIR / ('latest.md' if live else 'latest_offline.md'))
+    if output is None and not destination.resolve().is_relative_to(RESULTS_DIR.absolute()):
+        raise ValueError('Default output must stay in eval/results; use --output for an explicit path')
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(report)
+    return destination
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--offline', action='store_true', help='Keyword fallback only (default)')
     mode.add_argument('--live', action='store_true', help='Real planner; consumes Gemini calls')
+    parser.add_argument('--output', type=Path, help='Explicit report path, including outside eval/results')
     parser.add_argument('--resume', action='store_true', help='Live only: skip completed progress IDs')
     parser.add_argument('--with-answers', action='store_true', help='Live only: call tools/analyst and check numbers')
     parser.add_argument('--delay', type=float, default=2, help='Seconds between live questions (default: 2)')
@@ -415,9 +428,7 @@ def main(argv=None):
     report = render_report(questions, rows, observations,
                            'live' if args.live else 'offline', stopped, args.with_answers,
                            model_name=api.get_model_name() if args.live else None)
-    destination = Path(__file__).with_name('results') / 'latest.md'
-    destination.parent.mkdir(exist_ok=True)
-    destination.write_text(report)
+    write_report(report, live=args.live, output=args.output)
     print(report, end='')
     return 0
 
