@@ -4,6 +4,7 @@ import argparse
 from collections import Counter
 from contextlib import redirect_stdout
 import io
+import json
 import os
 import re
 from pathlib import Path
@@ -131,17 +132,59 @@ def live_question(api, question, client, with_answers, observations):
                 answer_requested=with_answers)
 
 
-def run_questions(api, questions, *, client=None, with_answers=False, delay=2, sleep=time.sleep):
+def read_progress(path, questions, api):
+    """Read only validated tool outcomes; labels always come from the current sheet."""
+    latest = {}
+    if not Path(path).exists():
+        return latest
+    ids = {q['id'] for q in questions}
+    for line in Path(path).read_text().splitlines():
+        entry = json.loads(line)
+        if (set(entry) != {'id', 'outcome', 'tools'} or entry['id'] not in ids
+                or entry['outcome'] not in ('ok', 'quota', 'auth', 'model_error', 'other')
+                or not isinstance(entry['tools'], list)
+                or any(tool not in api.TOOLS for tool in entry['tools'])
+                or len(set(entry['tools'])) != len(entry['tools'])):
+            raise ValueError('Invalid live progress entry; start a new progress file')
+        latest[entry['id']] = entry
+    return latest
+
+
+def append_progress(path, question_id, outcome, tools):
+    """Persist only IDs, classified outcomes and allowlisted tools, never errors."""
+    with Path(path).open('a') as stream:
+        stream.write(json.dumps(dict(id=question_id, outcome=outcome, tools=tools)) + '\n')
+
+
+def run_questions(api, questions, *, client=None, with_answers=False, delay=2, sleep=time.sleep,
+                  progress_path=None, resume=False):
     """A missing client selects offline keyword-only evaluation, never planner_node."""
     rows, observations = [], []
     stopped = None
-    for index, question in enumerate(questions):
+    completed = read_progress(progress_path, questions, api) if resume and progress_path else {}
+    skipped = sum(completed.get(q['id'], {}).get('outcome') == 'ok' for q in questions)
+    if resume:
+        print(f'Resume: skipped {skipped} completed questions')
+    for question in questions:
+        saved = completed.get(question['id'])
+        if client is not None and saved and saved['outcome'] == 'ok':
+            raw = saved['tools']
+            selected = raw[:3] or api.keyword_fallback(question['question'])
+            rows.append(dict(question, got=selected, faithful=None, answer_requested=False))
+            observations.append(dict(id=question['id'], category=question['category'],
+                raw_tools=raw, cap_applied=len(raw) > 3, monthly_fallback=not raw and selected == ['monthly_revenue'],
+                planner_error=None, outcome='ok', failed_calls=0))
+    calls_started = False
+    for question in questions:
+        if client is not None and completed.get(question['id'], {}).get('outcome') == 'ok':
+            continue
         if client is None:
             rows.append(dict(question, got=api.keyword_fallback(question['question']),
                              faithful=None, answer_requested=False))
             continue
-        if index:
+        if calls_started:
             sleep(delay)
+        calls_started = True
         for attempt in range(2):
             before = len(observations)
             try:
@@ -159,6 +202,9 @@ def run_questions(api, questions, *, client=None, with_answers=False, delay=2, s
                     break
                 if attempt == 0:
                     sleep(delay)
+        if progress_path:
+            result = observations[-1]
+            append_progress(progress_path, question['id'], result['outcome'], result['raw_tools'] or [])
         if stopped:
             break
     return rows, observations, stopped
@@ -245,9 +291,12 @@ def main(argv=None):
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--offline', action='store_true', help='Keyword fallback only (default)')
     mode.add_argument('--live', action='store_true', help='Real planner; consumes Gemini calls')
+    parser.add_argument('--resume', action='store_true', help='Live only: skip completed progress IDs')
     parser.add_argument('--with-answers', action='store_true', help='Live only: call tools/analyst and check numbers')
     parser.add_argument('--delay', type=float, default=2, help='Seconds between live questions (default: 2)')
     args = parser.parse_args(argv)
+    if args.resume and not args.live:
+        parser.error('--resume requires --live')
     if args.with_answers and not args.live:
         parser.error('--with-answers requires --live')
     if args.delay <= 0:
@@ -264,7 +313,8 @@ def main(argv=None):
         with patch.object(api, 'DB_PATH', database):
             client = api.get_model() if args.live else None
             rows, observations, stopped = run_questions(api, questions, client=client,
-                with_answers=args.with_answers, delay=args.delay)
+                with_answers=args.with_answers, delay=args.delay, resume=args.resume,
+                progress_path=Path(__file__).with_name('results') / 'live_progress.jsonl' if args.live else None)
     report = render_report(questions, rows, observations,
                            'live' if args.live else 'offline', stopped, args.with_answers,
                            model_name=api.get_model_name() if args.live else None)
