@@ -3,7 +3,6 @@
 import argparse
 from collections import Counter
 from contextlib import redirect_stdout
-import io
 import json
 import os
 import re
@@ -85,15 +84,53 @@ class ModelCallError(Exception):
         super().__init__(f'{exception_class}: {message}')
 
 
+def enum_name(value):
+    """Keep enum names only; never stringify arbitrary provider metadata."""
+    name = getattr(value, 'name', None)
+    return name if isinstance(name, str) and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', name) else None
+
+
+class ResponseProbe:
+    """Delegate the response unchanged while recording safe text-access metadata."""
+    def __init__(self, response, observation):
+        self._response = response
+        self._observation = observation
+        try:
+            block = enum_name(getattr(getattr(response, 'prompt_feedback', None), 'block_reason', None))
+            candidates = getattr(response, 'candidates', None)
+            finish = enum_name(getattr(candidates[0], 'finish_reason', None)) if candidates else None
+            for key, value in (('block_reason', block), ('finish_reason', finish)):
+                if value:
+                    observation[key] = value
+        except Exception:
+            # Optional diagnostics must not change the app's response handling.
+            pass
+
+    @property
+    def text(self):
+        try:
+            return self._response.text
+        except Exception as error:
+            self._observation['text_error'] = type(error).__name__
+            raise
+
+    def __getattr__(self, name):
+        return getattr(self._response, name)
+
+
 class ModelProbe:
     """Capture provider exceptions that the application catches as fallbacks."""
     def __init__(self, client):
         self.client = client
         self.error = None
+        self.responses = []
 
     def generate_content(self, *args, **kwargs):
         try:
-            return self.client.generate_content(*args, **kwargs)
+            response = self.client.generate_content(*args, **kwargs)
+            observation = {}
+            self.responses.append(observation)
+            return ResponseProbe(response, observation)
         except Exception as error:
             self.error = ModelCallError(classify_error(error), type(error).__name__,
                                         masked_message(error))
@@ -110,8 +147,8 @@ def live_question(api, question, client, with_answers, observations):
         observation['raw_tools'] = original_parse(text, max_tools=None)
         return original_parse(text, max_tools=max_tools)
 
-    with patch.object(api, 'get_model', return_value=probe), patch.object(
-            api, 'parse_planned_tools', side_effect=observed_parse), redirect_stdout(io.StringIO()):
+    with open(os.devnull, 'w') as sink, patch.object(api, 'get_model', return_value=probe), patch.object(
+            api, 'parse_planned_tools', side_effect=observed_parse), redirect_stdout(sink):
         state = api.planner_node(api.AgentState(question['question']))
         if probe.error:
             raise probe.error from None
