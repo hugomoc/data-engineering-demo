@@ -230,7 +230,25 @@ The draft evaluation sheet contains **30 questions**, five each for product,
 segment, monthly-revenue, anomaly, multi-tool, and out-of-scope cases. Offline CI
 covers planner parsing and numeric correctness against independent fixture SQL.
 Live planner accuracy is measured manually; results live in
-`eval/results/latest.md`, marked **pending first live run** for now.
+`eval/results/latest.md`.
+
+First live run: model **gemini-3.5-flash-lite**; **30 of 30 questions answered**;
+**0 failed calls**.
+
+- In-scope questions: **25 of 25** final tool selections correct, including
+  **5 of 5 multi-tool**; Wilson 95% lower bound **86.7%**.
+- Out-of-scope questions: **0 of 5** handled correctly; Wilson 95% upper bound
+  **43.4%**. The model declined **2**, picked tools for **2**, and returned no
+  usable text for **1**. The app's keyword fallback answers from monthly_revenue
+  in the declined and no-text cases.
+- Overall: **25 of 30 (83.3%, Wilson 95% 66.4%-92.7%)**, counting final tools
+  after the app's fallback and cap.
+
+The agent has no way to decline an out-of-scope question: if the model selects no valid tool or returns no usable text, the keyword fallback defaults to monthly_revenue.
+
+The question set is small (5 questions per category) and was drafted with AI assistance; in-scope questions are rewordings of the tool descriptions and are likely easier than real user questions.
+
+Answer faithfulness (--with-answers) has not been run.
 
 ```sh
 venv312/bin/python -m eval.run_agent_eval --offline
