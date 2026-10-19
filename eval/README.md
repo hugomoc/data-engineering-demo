@@ -39,6 +39,33 @@ completed evaluation. No live run has been performed for the initial report.
 
 ## What is measured
 
+### Resuming an authorized live evaluation
+
+Free-tier quotas can stop a run partway. For a manually authorized evaluation
+across several days, supply `GEMINI_API_KEY` in the environment and run
+`venv312/bin/python -m eval.run_agent_eval --live --resume` each day. This command
+is documentation only; offline verification does not run it. The first resume
+can start without a progress file, and subsequent runs print how many completed
+IDs were skipped and retry failed IDs. Keep the question sheet and model fixed
+between runs. Remove the progress file manually before starting a new evaluation.
+
+`eval/results/live_progress.jsonl` is ignored and must never be committed. Each
+line contains only an ID, classified outcome and allowlisted tools (before the
+cap, so resumed cap metrics remain reproducible); keys and raw errors are never
+stored. Resume restores planner selection, cap and fallback metrics, not previous
+answer-faithfulness results. With `--with-answers`, only newly completed answers
+enter that metric's denominator.
+
+Quota, authentication and unavailable-model errors stop immediately and display
+the exception class and a masked message. Other provider errors are retried once;
+failed calls are never counted as answers or included in accuracy denominators.
+The report counts failed attempts separately from questions never attempted,
+marks incomplete runs as PARTIAL, and reports “no valid planner responses” when
+none completed. An empty valid-tool parse remains a completed response: existing
+application keyword routing is retained, with the raw empty result shown in the
+out-of-scope metric. The existing silent-fallback row describes that routing,
+not a swallowed provider failure.
+
 - Exact-match tool-selection accuracy compares sets, ignoring tool order.
 - Precision and recall are computed per question and then averaged. Both empty
   is perfect; an empty/nonempty mismatch gets zero for both.
