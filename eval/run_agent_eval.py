@@ -5,6 +5,7 @@ from collections import Counter
 from contextlib import redirect_stdout
 import io
 import os
+import re
 from pathlib import Path
 import runpy
 import tempfile
@@ -42,22 +43,59 @@ def load_questions(path):
     return questions
 
 
+def masked_message(error):
+    """Redact configured keys and common key forms before reporting errors."""
+    message = str(error)
+    for name in ('GEMINI_API_KEY', 'GOOGLE_API_KEY', 'OPENAI_API_KEY'):
+        key = os.environ.get(name)
+        if key:
+            message = message.replace(key, '[REDACTED]')
+    message = re.sub(r'AIza[\w-]+', '[REDACTED]', message)
+    return re.sub(r'(?i)(api[_ -]?key[=:\s]+)[^\s,;]+', r'\1[REDACTED]', message)
+
+
+def classify_error(error):
+    from google.api_core.exceptions import (
+        ResourceExhausted, PermissionDenied, Unauthenticated, InvalidArgument, NotFound,
+    )
+    status = getattr(error, 'status_code', None)
+    if status is None:
+        status = getattr(getattr(error, 'response', None), 'status_code', None)
+    code = getattr(error, 'code', None)
+    if callable(code):
+        code = code()
+    if isinstance(error, ResourceExhausted) or status == 429 or code == 429:
+        return 'quota'
+    message = str(error).lower()
+    if isinstance(error, (PermissionDenied, Unauthenticated)) or (
+            isinstance(error, InvalidArgument) and (
+                'api_key_invalid' in message or 'api key' in message or 'api_key' in message
+                or 'invalid key' in message)):
+        return 'auth'
+    if isinstance(error, NotFound):
+        return 'model_error'
+    return 'other'
+
+
+class ModelCallError(Exception):
+    """Only classified, redacted exception information leaves the probe."""
+    def __init__(self, outcome, exception_class, message):
+        self.outcome = outcome
+        super().__init__(f'{exception_class}: {message}')
+
+
 class ModelProbe:
-    """Observe quota errors the application deliberately catches as fallbacks."""
+    """Capture provider exceptions that the application catches as fallbacks."""
     def __init__(self, client):
         self.client = client
-        self.quota = None
         self.error = None
 
     def generate_content(self, *args, **kwargs):
-        from google.api_core.exceptions import ResourceExhausted
         try:
             return self.client.generate_content(*args, **kwargs)
-        except ResourceExhausted as error:
-            self.quota = error
-            raise
         except Exception as error:
-            self.error = type(error).__name__
+            self.error = ModelCallError(classify_error(error), type(error).__name__,
+                                        masked_message(error))
             raise
 
 
@@ -74,18 +112,20 @@ def live_question(api, question, client, with_answers, observations):
     with patch.object(api, 'get_model', return_value=probe), patch.object(
             api, 'parse_planned_tools', side_effect=observed_parse), redirect_stdout(io.StringIO()):
         state = api.planner_node(api.AgentState(question['question']))
-        if probe.quota:
-            raise probe.quota
+        if probe.error:
+            raise probe.error from None
         raw = observation['raw_tools']
         observation.update(cap_applied=raw is not None and len(raw) > 3,
             monthly_fallback=(not raw and state.selected_tools == ['monthly_revenue']),
-            planner_error=probe.error)
+            planner_error=None, outcome='ok', failed_calls=0)
         observations.append(observation)
         faithful = None
         if with_answers:
-            state = api.analyst_node(api.compute_node(api.tool_node(state)))
-            if probe.quota:
-                raise probe.quota
+            try:
+                state = api.analyst_node(api.compute_node(api.tool_node(state)))
+            finally:
+                if probe.error:
+                    raise probe.error from None
             faithful = numbers_are_grounded(state.final_answer, state.raw_data, state.computed_data)
     return dict(question, got=state.selected_tools, faithful=faithful,
                 answer_requested=with_answers)
@@ -93,21 +133,33 @@ def live_question(api, question, client, with_answers, observations):
 
 def run_questions(api, questions, *, client=None, with_answers=False, delay=2, sleep=time.sleep):
     """A missing client selects offline keyword-only evaluation, never planner_node."""
-    from google.api_core.exceptions import ResourceExhausted
     rows, observations = [], []
     stopped = None
     for index, question in enumerate(questions):
-        if client is not None and index:
+        if client is None:
+            rows.append(dict(question, got=api.keyword_fallback(question['question']),
+                             faithful=None, answer_requested=False))
+            continue
+        if index:
             sleep(delay)
-        try:
-            if client is None:
-                row = dict(question, got=api.keyword_fallback(question['question']),
-                           faithful=None, answer_requested=False)
-            else:
+        for attempt in range(2):
+            before = len(observations)
+            try:
                 row = live_question(api, question, client, with_answers, observations)
-            rows.append(row)
-        except ResourceExhausted:
-            stopped = 'ResourceExhausted'
+                rows.append(row)
+                break
+            except ModelCallError as error:
+                del observations[before:]
+                observations.append(dict(id=question['id'], category=question['category'],
+                    outcome=error.outcome, failed_calls=1, raw_tools=None,
+                    cap_applied=False, monthly_fallback=False, planner_error=str(error)))
+                print(f'{question["id"]}: {error.outcome}: {error}')
+                if error.outcome in ('quota', 'auth', 'model_error'):
+                    stopped = str(error)
+                    break
+                if attempt == 0:
+                    sleep(delay)
+        if stopped:
             break
     return rows, observations, stopped
 
