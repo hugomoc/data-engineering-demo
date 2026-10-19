@@ -242,6 +242,21 @@ handling, and the limitations of the numerical answer-faithfulness heuristic.
 The three-tool cap was added after the evaluation work found that the prompt
 and parser disagreed.
 
+For an explicitly authorized live evaluation across several days, run
+`venv312/bin/python -m eval.run_agent_eval --live --resume` on each day with
+`GEMINI_API_KEY` supplied in the environment. Free-tier quotas can stop a run
+partway; authentication and unavailable-model errors also stop immediately.
+Other provider failures are retried once. Failed calls are never counted as
+answers or included in accuracy denominators. The report marks partial runs and
+separates failed calls from questions not run.
+
+Resume skips completed IDs stored in the ignored
+`eval/results/live_progress.jsonl` and retries failed IDs. The file stores only
+IDs, outcomes and valid tool names, never keys or error messages. Keep the same
+question sheet and model across resumed runs; remove the progress file manually
+to start a fresh evaluation. Resumed planner results retain cap and fallback
+metrics, but previous answer-faithfulness results are not stored or restored.
+
 ## Design principles
 
 This project follows modern data engineering principles including separation of ingestion, transformation, and serving layers, modular SQL modeling with dbt, lightweight analytics storage using DuckDB, and AI-assisted analytics for business interpretation. It is designed to be extensible, reproducible, and representative of production-style ELT architectures.

@@ -45,3 +45,6 @@ sql copy/
 
 # dbt local user settings
 ecommerce_project/.user.yml
+
+# Private live evaluation progress
+eval/results/live_progress.jsonl
