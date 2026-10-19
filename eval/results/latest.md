@@ -1,6 +1,7 @@
 # Agent evaluation
 
 Mode: **offline**; 30 of 30 questions completed.
+Model: none (keyword_fallback only)
 Labels are a DRAFT that a human must review.
 
 **Live planner accuracy: pending first live run.**

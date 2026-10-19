@@ -60,6 +60,7 @@ def test_question_sheet_and_offline_runner_never_call_model():
     report = render_report(questions, rows, observations, 'offline', None, False)
     assert '53.3%' in report and 'n=30' in report
     assert 'pending first live run' in report
+    assert 'Model: none (keyword_fallback only)' in report.splitlines()[:8]
     assert '| top_products | 4 of 5 | 5 |' in report
     assert '| out_of_scope | 0 of 5 | 5 |' in report
     for label in ('exact-match tool selection', 'mean precision', 'mean recall'):
@@ -80,7 +81,9 @@ def test_mock_planner_observes_pre_fallback_empty_and_cap():
     assert observations[0]['raw_tools'] == []
     assert observations[0]['monthly_fallback'] is True
     assert rows[0]['got'] == ['monthly_revenue']
-    report = render_report([question], rows, observations, 'live', None, False)
+    report = render_report([question], rows, observations, 'live', None, False,
+                           model_name='configured-test-model')
+    assert 'Model: configured-test-model' in report.splitlines()[:8]
     assert '| Questions with cap applied (count) | 0 of 1 |' in report
     for label in ('Exact-match tool-selection accuracy', 'Mean per-question precision', 'Mean per-question recall'):
         assert f'| {label} |' in report

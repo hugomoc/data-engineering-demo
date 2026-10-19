@@ -120,10 +120,11 @@ def format_rate(successes, n):
     return f'{successes / n:.1%} (95% Wilson {low:.1%}–{high:.1%}; n={n})'
 
 
-def render_report(questions, rows, observations, mode, stopped, with_answers):
+def render_report(questions, rows, observations, mode, stopped, with_answers, model_name=None):
     scores = [selection_scores(row['expected_tools'], row['got']) for row in rows]
     n = len(rows)
     lines = ['# Agent evaluation', '', f'Mode: **{mode}**; {n} of {len(questions)} questions completed.',
+        f'Model: {model_name}' if mode == 'live' else 'Model: none (keyword_fallback only)',
         'Labels are a DRAFT that a human must review.', '']
     if mode == 'offline':
         lines += ['**Live planner accuracy: pending first live run.**',
@@ -199,7 +200,8 @@ def main(argv=None):
             rows, observations, stopped = run_questions(api, questions, client=client,
                 with_answers=args.with_answers, delay=args.delay)
     report = render_report(questions, rows, observations,
-                           'live' if args.live else 'offline', stopped, args.with_answers)
+                           'live' if args.live else 'offline', stopped, args.with_answers,
+                           model_name=api.get_model_name() if args.live else None)
     destination = Path(__file__).with_name('results') / 'latest.md'
     destination.parent.mkdir(exist_ok=True)
     destination.write_text(report)
