@@ -3,9 +3,11 @@
 import os
 from pathlib import Path
 import runpy
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 GUARD = ROOT / "scripts" / "offline_guard"
 runpy.run_path(str(GUARD / "sitecustomize.py"))
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
