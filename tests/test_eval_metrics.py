@@ -99,8 +99,9 @@ def test_mock_quota_stop_and_sleep_between_calls():
     sleep = Mock()
     rows, observations, stopped = run_questions(main, [question, dict(question, id='Q02'),
         dict(question, id='Q03')], client=client, delay=2, sleep=sleep)
-    assert len(rows) == 1 and len(observations) == 1
-    assert stopped == 'ResourceExhausted'
+    assert len(rows) == 1 and len(observations) == 2
+    assert observations[-1]['outcome'] == 'quota'
+    assert stopped.startswith('ResourceExhausted:')
     assert client.generate_content.call_count == 2
     sleep.assert_called_once_with(2)
 
@@ -115,7 +116,9 @@ def test_mock_analyst_quota_is_not_mistaken_for_completed_answer(monkeypatch):
     monkeypatch.setattr(main, 'tool_node', lambda state: state)
     monkeypatch.setattr(main, 'compute_node', lambda state: state)
     rows, observations, stopped = run_questions(main, [question], client=client, with_answers=True)
-    assert rows == [] and len(observations) == 1 and stopped == 'ResourceExhausted'
+    assert rows == [] and len(observations) == 1
+    assert observations[0]['outcome'] == 'quota'
+    assert stopped.startswith('ResourceExhausted:')
 
 
 @pytest.mark.parametrize('answer,faithful', [
