@@ -189,7 +189,7 @@ def planner_node(state: AgentState):
             generation_config={"temperature": 0}
         )
 
-        state.selected_tools = parse_planned_tools(response.text)
+        state.selected_tools = parse_planned_tools(response.text, max_tools=3)
         
 
     except Exception as e:
