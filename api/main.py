@@ -51,6 +51,11 @@ chat_history = defaultdict(list)
 model = None
 
 
+def get_model_name():
+    """Return the configured Gemini model name."""
+    return os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+
+
 def get_model():
     """Load credentials and initialize Gemini only when the agent is used."""
     global model
@@ -60,7 +65,7 @@ def get_model():
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY is required to call the agent")
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
+        model = genai.GenerativeModel(get_model_name())
     return model
 
 
