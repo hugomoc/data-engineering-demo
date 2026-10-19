@@ -257,6 +257,13 @@ question sheet and model across resumed runs; remove the progress file manually
 to start a fresh evaluation. Resumed planner results retain cap and fallback
 metrics, but previous answer-faithfulness results are not stored or restored.
 
+Raw observations distinguish `declined` (parsing found no valid tool), `picked`
+(valid tools were named, counted before the cap), and `no_text` (reading the
+response text raised). `no_text` is reported separately from failed API calls.
+“Got” shows the final tools after the app's fallback and cap. Old progress files
+lacking raw statuses must be archived outside the repo before starting a new run;
+their empty tool lists cannot distinguish a decline from unreadable text.
+
 ## Design principles
 
 This project follows modern data engineering principles including separation of ingestion, transformation, and serving layers, modular SQL modeling with dbt, lightweight analytics storage using DuckDB, and AI-assisted analytics for business interpretation. It is designed to be extensible, reproducible, and representative of production-style ELT architectures.
