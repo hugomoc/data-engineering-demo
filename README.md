@@ -13,7 +13,7 @@
 
 ## Overview
 
-This project is a production-style end-to-end analytics engineering system simulating an e-commerce data platform.
+This project is an end-to-end analytics engineering system simulating an e-commerce data platform.
 It combines modern data engineering practices with an AI-powered analytics interface, enabling both SQL-based and natural language querying of business metrics.
 The system demonstrates a full ELT + Analytics + AI serving layer architecture.
 
@@ -289,7 +289,7 @@ their empty tool lists cannot distinguish a decline from unreadable text.
 
 ## Design principles
 
-This project follows modern data engineering principles including separation of ingestion, transformation, and serving layers, modular SQL modeling with dbt, lightweight analytics storage using DuckDB, and AI-assisted analytics for business interpretation. It is designed to be extensible, reproducible, and representative of production-style ELT architectures.
+This project follows modern data engineering principles including separation of ingestion, transformation, and serving layers, modular SQL modeling with dbt, lightweight analytics storage using DuckDB, and AI-assisted analytics for business interpretation. It is designed to be extensible, reproducible, and representative of common ELT architectures.
 
 ## Business Use Cases
 
